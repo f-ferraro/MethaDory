@@ -29,9 +29,7 @@ wget https://bioconductor.org/packages/release/data/experiment/src/contrib/ChAMP
 ## Running MethaDory 
 
 ```
-cd MethaDory
 pixi run rscript ShinyApp-MethylClassifier.r
-
 ```
 The command will take care of installing the necessary prerequisites and launching the app.
 If the local web browser doesn't open automatically, double click on the link shown on the terminal. 
