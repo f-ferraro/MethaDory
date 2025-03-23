@@ -18,12 +18,13 @@ curl -fsSL https://pixi.sh/install.sh | bash
 
 ### Clone the repository 
 
-Now clone the MethaDory git page
+Now clone the MethaDory git page and download ChAMPdata v2.38.0
 
 ```
 git clone git@github.com:f-ferraro/MethaDory.git
+cd MethaDory
+wget https://bioconductor.org/packages/release/data/experiment/src/contrib/ChAMPdata_2.38.0.tar.gz
 ```
-
 
 ## Running MethaDory 
 
