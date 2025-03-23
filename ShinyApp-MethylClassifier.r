@@ -1,4 +1,4 @@
-options(shiny.maxRequestSize=500*1024^2)
+options(shiny.maxRequestSize=250*1024^2)
 # app.R
 library(shiny)
 library(shinydashboard)
@@ -16,6 +16,7 @@ library(circlize)
 library(Rtsne)
 library(shinyFiles)
 library(fs)
+
 paste0(getwd(),"/ChAMPdata_2.38.0.tar.gz")
 install.packages(paste0(getwd(),"/ChAMPdata_2.38.0.tar.gz"),
                  repos = NULL, type="source")
@@ -38,24 +39,35 @@ ui <- dashboardPage(
     selectInput("proband", "Select Proband for plotting",
                 choices = NULL),
     hr(),
+
+    fluidRow(
+      column(6, actionButton("selectAll", "Select All")),
+      column(6, actionButton("deselectAll", "Deselect All"))
+    ),
     checkboxGroupInput("signatures", "Select Signatures for plotting",
                        choices = NULL),
-    actionButton("selectAll", "Select All"),
-    actionButton("deselectAll", "Deselect All"),
     hr(),
     downloadButton("downloadResults", "Download Results"),
     downloadButton("downloadPlots", "Download Plots")
   ),
   dashboardBody(
     fluidRow(
-
       tabBox(
-        id = "tabset1", height = "400px", width = 22,
-        tabPanel("Console Output", verbatimTextOutput("console")),
-        tabPanel("Prediction results plots", plotOutput("predictionPlot")),
+        id = "tabset1", height = "600px", width = 30, 
+        tabPanel("Help",  includeMarkdown("help.md") ),
+       
+        tabPanel("Prediction results plots", 
+                 div(style = "overflow-x: auto; width: 100%;",
+                     div(style = "min-width: 1000px;", 
+                         plotOutput("predictionPlot", height = "550px", width = "3000px") 
+                     )
+                 )
+        ),
         tabPanel("Prediction table", DTOutput("predictionTable")),
-        # tabPanel("PCA training population", plotOutput("predictionTable")),
-        tabPanel("Cell proportion deconvolution", plotOutput("cellpropPlot"))
+        tabPanel("Cell proportion deconvolution", 
+                 plotOutput("cellpropPlot", height = "550px")),
+        tabPanel("Console Output", verbatimTextOutput("console"))
+        
       )
     ),
     fluidRow(
@@ -75,9 +87,17 @@ ui <- dashboardPage(
 )
 
 server <- function(input, output, session) {
-  # Initialize shinyDirChoose
-  volumes <- c(Home = fs::path_home(), "R Installation" = R.home(), getVolumes()())
-  shinyDirChoose(input, "modelDir", roots = volumes, session = session)
+  # Initialize shinyDirChoose with current working directory
+  volumes <- c(Home = fs::path_home(),
+               "Working Directory" = getwd(),
+               "R Installation" = R.home(),
+               getVolumes()())
+  
+  shinyDirChoose(input, "modelDir",
+                 roots = volumes,
+                 defaultRoot = "Working Directory",
+                 defaultPath = getwd(),
+                 session = session)
   
   # Reactive values
   values <- reactiveValues(
@@ -159,21 +179,21 @@ server <- function(input, output, session) {
       
       log_message("Performing imputation...")
       incProgress(0.4)
-
+      
       values$imputed_data <- perform_imputation(imputation_data$test_data,
-                                                      values$data_list$test_data_ids)
+                                                values$data_list$test_data_ids)
       
       
       # Load additional data for plotting
       log_message("Loading beta signatures...")
       incProgress(0.5)
       values$beta_sig_data <- load_beta_signatures()
-
+      
       # Prepare inference data and make predictions
       log_message("Preparing inference data...")
       incProgress(0.6)
       
-
+      
       values$inference_data <- prepare_inference_data(values$imputed_data, 
                                                       values$background_data$svm)
       
@@ -182,7 +202,7 @@ server <- function(input, output, session) {
       values$results <- make_predictions(values$inference_data,
                                          values$background_data$svm,
                                          values$data_list$test_data_ids)
-
+      
       
       log_message("Loading real cases...")
       incProgress(0.8)
@@ -191,7 +211,7 @@ server <- function(input, output, session) {
       # Prepare plot data
       log_message("Preparing plot data...")
       incProgress(0.9)
-
+      
       values$plot_data <- prepare_plot_data(values$beta_sig_data$signatures,
                                             values$beta_sig_data$insilico_beta,
                                             values$imputed_data,
@@ -253,10 +273,10 @@ server <- function(input, output, session) {
                              choices = names(values$beta_sig_data$signatures),
                              selected = character(0))
   })
-
+  
   # Create prediction plot
   output$predictionTable <- renderDT({datatable(values$results)})
-    
+  
   # Create prediction plot
   output$predictionPlot <- renderPlot({
     req(values$results, input$proband, input$signatures)
@@ -264,11 +284,11 @@ server <- function(input, output, session) {
     create_prediction_plot(values$results, input$proband)
   })
   
-  # Create cell deconvolution plot
+  # Modify the cell proportion plot to fit the tab properly
   output$cellpropPlot <- renderPlot({
     req(values$imputed_data)
     
-    cell_prop_input = values$imputed_data 
+    cell_prop_input = values$data_list$test_data 
     rownames(cell_prop_input) = cell_prop_input$IlmnID
     cell_prop_input$IlmnID = NULL
     BloodFrac.m <- epidish(beta.m = cell_prop_input,
@@ -283,9 +303,20 @@ server <- function(input, output, session) {
                       values_to="CellProp")
     
     
-    ggplot(bf, aes(CellType, CellProp)) + 
-      geom_point()+
-      theme_classic()
+    # Modified plot with better sizing and theme adjustments
+    ggplot(bf, aes(CellType, CellProp, color=Sample)) + 
+      geom_point(size = 3) +
+      theme_classic() +
+      theme(
+        legend.position = "bottom",
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title = element_text(size = 14, face = "bold"),
+        plot.margin = margin(20, 20, 20, 20)
+      ) +
+      ylab("Cell proportion") +
+      xlab("") +
+      ylim(0, NA) # Ensure y-axis starts at 0
     
   })
   
@@ -315,10 +346,12 @@ server <- function(input, output, session) {
     start_idx <- (values$current_page - 1) * input$plotsPerPage + 1
     end_idx <- min(values$current_page * input$plotsPerPage, length(input$signatures))
     current_signatures <- input$signatures[start_idx:end_idx]
+
     
     for(s in current_signatures) {
       local({
         s_local <- s
+
         output[[paste("plot", s_local, sep = "")]] <- renderPlot({
           create_dimension_reduction_plots(values$plot_data[[s_local]],
                                            values$plot_metadata[[s_local]],
@@ -332,7 +365,7 @@ server <- function(input, output, session) {
   # Download handlers remain the same
   output$downloadResults <- downloadHandler(
     filename = function() {
-      paste("results_", Sys.Date(), ".tsv", sep = "")
+      paste("results_", Sys.Date(), ".tsv", sep = "\tsv")
     },
     content = function(file) {
       write.table(values$results, file, quote = F, row.names = F)
@@ -344,13 +377,15 @@ server <- function(input, output, session) {
       paste("plots_", Sys.Date(), ".pdf", sep = "")
     },
     content = function(file) {
-      pdf(file, width = 14, height = 8)
+      pdf(file, width = 35, height = 8)
       
       # Print prediction plot
       print(create_prediction_plot(values$results, input$proband))
       
       # Print dimension reduction plots for selected signatures
       for(s in input$signatures) {
+        
+
         dim_plots <- create_dimension_reduction_plots(values$plot_data[[s]],
                                                       values$plot_metadata[[s]],
                                                       input$proband,

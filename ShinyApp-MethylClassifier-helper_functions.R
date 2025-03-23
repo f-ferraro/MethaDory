@@ -1,3 +1,4 @@
+# Helper functions for MethaDory app
 # Load required libraries
 library(ggplotify)
 library(umap)
@@ -13,22 +14,29 @@ library(circlize)
 library(Rtsne)
 library(EpiDISH)
 
-# Function to load and prepare test data
+#' Load and prepare test data
+#'
+#' @param file_path Path to the test data file
+#' @return List containing the test data and test data IDs
 load_test_data <- function(file_path) {
   test_data_user <- read.table(file_path, header = TRUE)
   test_data <- test_data_user %>% relocate(IlmnID)
+  
   return(list(
     test_data = test_data,
     test_data_ids = setdiff(names(test_data), "IlmnID")
   ))
 }
 
-# Modified load_background_data function in helper_functions.R
+#' Load background data and SVM models
+#'
+#' @param model_dir Directory containing the SVM models
+#' @return List containing imputation background and SVM models
 load_background_data <- function(model_dir) {
   # Load imputation background
-  imputation_background <- lapply(list.files("imputation", "qs",full.names = T),qs::qread)
+  imputation_background <- lapply(list.files("data/imputation", "rds", full.names = TRUE), readRDS)
   imputation_background <- bind_rows(imputation_background)
-  imputation_background$IlmnID = rownames(imputation_background)
+  imputation_background$IlmnID <- rownames(imputation_background)
   
   # Load models from the selected directory
   models <- list.files(model_dir, pattern = "\\.rds$", full.names = TRUE)
@@ -63,8 +71,12 @@ load_background_data <- function(model_dir) {
   ))
 }
 
-
-# Function to merge and prepare data for imputation
+#' Prepare data for imputation
+#'
+#' @param test_data Test data frame
+#' @param imputation_background Background data for imputation
+#' @param svm SVM models
+#' @return List containing prepared test data and merged signatures
 prepare_imputation_data <- function(test_data, imputation_background, svm) {
   merged_signatures <- lapply(svm, predictors)
   test_data <- test_data[test_data$IlmnID %in% unlist(merged_signatures),]
@@ -84,9 +96,13 @@ prepare_imputation_data <- function(test_data, imputation_background, svm) {
   ))
 }
 
-# Function to perform imputation
+#' Perform imputation on test data
+#'
+#' @param test_data Prepared test data
+#' @param test_sample_ids IDs of test samples
+#' @return Imputed data frame
 perform_imputation <- function(test_data, test_sample_ids) {
-  manifest <- qs::qread("manifest.qc_filtered.qs")
+  manifest <- readRDS("data/manifest.qc_filtered.rds")
   manifest$MAPINFO <- NULL
   names(manifest) <- c('cpg', 'chr')
   
@@ -95,32 +111,39 @@ perform_imputation <- function(test_data, test_sample_ids) {
                                 annotation = manifest,
                                 BPPARAM = SnowParam(exportglobals = FALSE,
                                                     workers = 1))
-  df =as.data.frame(t(beta_SE_imputed))
-  df$IlmnID = rownames(df)
+  df <- as.data.frame(t(beta_SE_imputed))
+  df$IlmnID <- rownames(df)
   
-  df = df[, names(df) %in% c("IlmnID", test_sample_ids)]
+  df <- df[, names(df) %in% c("IlmnID", test_sample_ids)]
  
   return(df)
 }
 
-# Function to prepare data for inference
+#' Prepare data for inference
+#'
+#' @param test_data Test data frame
+#' @param svm SVM models
+#' @return List of data frames for inference
 prepare_inference_data <- function(test_data, svm) {
   lapply(svm, function(x) {
-    z = test_data[match(predictors(x), test_data$IlmnID), ]
-    z$IlmnID = NULL
+    z <- test_data[match(predictors(x), test_data$IlmnID), ]
+    z$IlmnID <- NULL
     return(z)
   })
 }
 
-# Function to make predictions
+#' Make predictions using SVM models
+#'
+#' @param test_for_inference Prepared inference data
+#' @param svm SVM models
+#' @param test_data_ids IDs of test samples
+#' @return Data frame of prediction results
 make_predictions <- function(test_for_inference, svm, test_data_ids) {
   results <- list()
   
   for (i in names(test_for_inference)) {
-
     for (j in names(svm)) {
       if (grepl(i, j)) {
-        # print("Processing",i)
         results[[paste(i, j)]] <- predict(svm[[j]],
                                           newdata = t(test_for_inference[[i]]),
                                           type = "prob")
@@ -129,10 +152,14 @@ make_predictions <- function(test_for_inference, svm, test_data_ids) {
     }
   }
 
-  process_results(results,test_data_ids)
+  process_results(results, test_data_ids)
 }
 
-# Function to process prediction results
+#' Process prediction results
+#'
+#' @param results Raw prediction results
+#' @param test_data_ids IDs of test samples
+#' @return Processed prediction results
 process_results <- function(results, test_data_ids) {
   results <- lapply(results, as.data.frame)
   results <- bind_rows(results, .id = "Model")
@@ -152,14 +179,17 @@ process_results <- function(results, test_data_ids) {
     mutate(rank = rank(SVM_score, ties.method = "first")) %>%
     filter(rank != min(rank) & rank != max(rank)) %>%
     summarise(pCase = mean(SVM_score),
-              pCase_sd = sd(SVM_score))
+              pCase_sd = sd(SVM_score),
+              .groups = "drop")
 }
 
-# Function to load beta values and signatures
+#' Load beta values and signatures
+#'
+#' @return List containing insilico beta, meta, and signatures
 load_beta_signatures <- function() {
-  insilico_beta <- qs::qread("samples_for_insilico.beta.qs")
-  insilico_meta <- qs::qread("samples_for_insilico.meta.qs")
-  signatures <- read.table('../0b.Signatures_Processing/age70signatures_signature500/merged_signatures_90DMRs.tsv', header = TRUE)
+  insilico_beta <- readRDS("data/syntheticcases/samples_for_insilico.beta.rds")
+  insilico_meta <- readRDS("data/syntheticcases/samples_for_insilico.meta.rds")
+  signatures <- read.table('data/merged_signatures_90DMRs.tsv', header = TRUE)
   signatures <- split(signatures, f = as.factor(paste(signatures$Label)))
   
   return(list(
@@ -169,10 +199,13 @@ load_beta_signatures <- function() {
   ))
 }
 
-# Function to load and prepare real cases
+#' Load and prepare real cases data
+#'
+#' @param signatures List of signatures
+#' @return List containing real cases beta and meta data
 load_real_cases <- function(signatures) {
-  real_cases_beta <- qs::qread("realcases/subset.realcases.plots.beta.qs")
-  real_cases_meta <- qs::qread("realcases/subset.realcases.plots.meta.qs")
+  real_cases_beta <- readRDS("data/affectedindividuals/affectedindividuals_methadory.beta.rds")
+  real_cases_meta <- readRDS("data/affectedindividuals/affectedindividuals_methadory.meta.rds")
   real_cases_meta <- real_cases_meta[, c("geo_accession", "RealLabel")]
   
   real_cases_meta <- real_cases_meta[real_cases_meta$geo_accession %in% colnames(real_cases_beta),]
@@ -192,7 +225,11 @@ load_real_cases <- function(signatures) {
   ))
 }
 
-# Function to prepare insilico cases data
+#' Prepare in-silico cases data
+#'
+#' @param signatures List of signatures
+#' @param insilico_beta In-silico beta values
+#' @return List of prepared in-silico cases data
 prepare_insilico_cases <- function(signatures, insilico_beta) {
   lapply(signatures, function(x) {
     # Subset beta values for relevant probes
@@ -218,21 +255,30 @@ prepare_insilico_cases <- function(signatures, insilico_beta) {
   })
 }
 
-# Helper function to prepare user plots
+#' Prepare user data for plots
+#'
+#' @param signatures List of signatures
+#' @param test_data_user User test data
+#' @return List of prepared user data for plots
 prepare_user_plots <- function(signatures, test_data_user) {
   lapply(signatures, function(x) {
     # Subset user data for relevant probes
-    y = test_data_user[test_data_user$IlmnID %in% x$ProbeID, ]
-    rownames(y) = y$IlmnID
+    y <- test_data_user[test_data_user$IlmnID %in% x$ProbeID, ]
+    rownames(y) <- y$IlmnID
     y <- y[match(x$ProbeID, rownames(y)), ]
-    
     
     return(as.data.frame(y))
   })
 }
-# Function to prepare plot data
+
+#' Prepare data for plots
+#'
+#' @param signatures List of signatures
+#' @param insilico_beta In-silico beta values
+#' @param test_data_user_imputed Imputed user test data
+#' @param real_cases_beta Real cases beta values
+#' @return List of prepared data for plots
 prepare_plot_data <- function(signatures, insilico_beta, test_data_user_imputed, real_cases_beta) {
-  
   insilicocases_plot_beta <- prepare_insilico_cases(signatures, insilico_beta)
   user_plot_beta <- prepare_user_plots(signatures, test_data_user_imputed)
   
@@ -250,42 +296,48 @@ prepare_plot_data <- function(signatures, insilico_beta, test_data_user_imputed,
   return(data_for_plots_beta)
 }
 
-# Function to prepare plot metadata
+#' Prepare metadata for plots
+#'
+#' @param signatures List of signatures
+#' @param insilicocases_plot_beta In-silico cases plot beta values
+#' @param user_plot_beta User plot beta values
+#' @param real_cases_meta Real cases metadata
+#' @return List of prepared metadata for plots
 prepare_plot_metadata <- function(signatures, insilicocases_plot_beta, user_plot_beta, real_cases_meta) {
-  
   data_for_plots_meta <- lapply(names(signatures), function(s) {
-    
     mt_ids_iscases <- setdiff(colnames(insilicocases_plot_beta[[s]]), "IlmnID")
-    
     mt_ids_usertests <- setdiff(colnames(user_plot_beta), "IlmnID")
-    
+
     lsd <- data.frame(
       'IDs' = c(mt_ids_iscases, mt_ids_usertests),
-      'Status' = c(rep("in_silico_case", length(c(mt_ids_iscases, mt_ids_usertests)))),
-      'Source' = c(rep("literature", length(c(mt_ids_iscases, mt_ids_usertests))))        
-    )           
-    
+      'Status' = rep("in_silico_case", length(c(mt_ids_iscases, mt_ids_usertests))),
+      'Source' = rep("literature", length(c(mt_ids_iscases, mt_ids_usertests)))
+    )
+
     lsd <- lsd[!lsd$IDs %in% real_cases_meta$IDs, ]
     lsd <- rbind(lsd, real_cases_meta)
-    lsd$Status = ifelse(lsd$IDs %in% mt_ids_usertests, "proband", lsd$Status)
-    lsd$Source = ifelse(lsd$IDs %in% mt_ids_usertests, "user_sample", lsd$Source)
-    
+    lsd$Status <- ifelse(lsd$IDs %in% mt_ids_usertests, "proband", lsd$Status)
+    lsd$Source <- ifelse(lsd$IDs %in% mt_ids_usertests, "user_sample", lsd$Source)
+
     lsd <- lsd[!duplicated(lsd),]
     rownames(lsd) <- lsd$IDs
     return(lsd)
   })
-  
+
   names(data_for_plots_meta) <- names(signatures)
   return(data_for_plots_meta)
 }
 
-# Function to create prediction plots
+#' Create prediction plot
+#'
+#' @param results Prediction results
+#' @param proband Proband ID
+#' @return ggplot object of prediction plot
 create_prediction_plot <- function(results, proband) {
-  # & results$SVM %in% signature
   ggplot(results[results$SampleID == proband,],
          aes(SVM, pCase, color = pCase)) +
     geom_hline(yintercept = c(0, 0.5, 1), color = "darkgrey") +
-    geom_pointrange(aes(ymin = ifelse(pCase - pCase_sd < 0, 0,pCase - pCase_sd),
+    geom_pointrange(aes(ymin = ifelse(pCase - pCase_sd < 0, 0, pCase - pCase_sd),
                         ymax = ifelse(pCase + pCase_sd > 1, 1, pCase + pCase_sd)),
                     position = position_jitter(width = 0, height = 0),
                     show.legend = FALSE) +
@@ -297,7 +349,10 @@ create_prediction_plot <- function(results, proband) {
     scale_colour_gradient(low = "#132B43", high = "darkred")
 }
 
-# Function to create color scheme for plots
+#' Create color scheme for plots
+#'
+#' @param test_id Test ID
+#' @return List of annotation colors
 create_annotation_colors <- function(test_id) {
   ann_colors <- list(
     Status = c('#FEB24C',
@@ -319,7 +374,10 @@ create_annotation_colors <- function(test_id) {
   return(ann_colors)
 }
 
-# Function to create PCA plot
+#' Create PCA plot
+#'
+#' @param pca_object PCA object
+#' @return ggplot object of PCA plot
 create_pca_plot <- function(pca_object) {
   # Get test_id for color scheme
   test_id <- setdiff(unique(pca_object$metadata$Status), 
@@ -339,12 +397,19 @@ create_pca_plot <- function(pca_object) {
   variance_pct <- round(pca_object$variance / sum(pca_object$variance) * 100)
   
   # Create the plot
-  ggplot(pca_plot_data) +
-    geom_point(aes(PC1, PC2, 
-                   color = Status,
-                   shape = (Status == "proband"), 
-                   size=1,
-                   alpha=0.85)) +
+  ggplot() +
+    geom_point(pca_plot_data[pca_plot_data$Status != "proband",], 
+               mapping=aes(PC1, PC2, 
+                            color = Status,
+                            shape = (Status == "proband"), 
+                            size = 1,
+                            alpha = 0.85)) +
+    geom_point(pca_plot_data[pca_plot_data$Status == "proband",], 
+               mapping=aes(PC1, PC2, 
+                            color = Status,
+                            shape = (Status == "proband"), 
+                            size = 1,
+                            alpha = 0.85)) +
     theme_minimal() +
     theme(
       legend.position = "bottom",
@@ -354,11 +419,17 @@ create_pca_plot <- function(pca_object) {
     xlab(paste0("PC1 (", variance_pct[1], "%)")) +
     ylab(paste0("PC2 (", variance_pct[2], "%)")) +
     ggtitle("PCA") +
-    scale_colour_manual(values = ann_colors$Status)+
-    guides(size = "none",shape="none",alpha="none")
+    scale_colour_manual(values = ann_colors$Status) +
+    guides(size = "none", shape = "none", alpha = "none")
 }
 
-# Function to create t-SNE plot
+#' Create t-SNE plot
+#'
+#' @param data_beta Beta values
+#' @param data_meta Metadata
+#' @param perplexity Perplexity parameter for t-SNE
+#' @param max_iter Maximum iterations for t-SNE
+#' @return ggplot object of t-SNE plot
 create_tsne_plot <- function(data_beta, data_meta, perplexity = 4, max_iter = 1500) {
   # Get test_id for color scheme
   test_id <- setdiff(unique(data_meta$Status), 
@@ -383,11 +454,18 @@ create_tsne_plot <- function(data_beta, data_meta, perplexity = 4, max_iter = 15
   
   # Create the plot
   ggplot(tsne_df) +
-    geom_point(aes(X, Y,
-                   color = Status,
-                   shape = Status == "proband", 
-                   size=1,
-                   alpha=0.85)) +
+    geom_point(tsne_df[tsne_df$Status != "proband",], 
+               mapping=aes(X, Y,
+                           color = Status,
+                           shape = Status == "proband", 
+                           size = 1,
+                           alpha = 0.85)) +
+    geom_point(tsne_df[tsne_df$Status == "proband",], 
+               mapping=aes(X, Y,
+                           color = Status,
+                           shape = Status == "proband", 
+                           size = 1,
+                           alpha = 0.85)) +
     theme_minimal() +
     theme(
       legend.position = "bottom",
@@ -397,11 +475,15 @@ create_tsne_plot <- function(data_beta, data_meta, perplexity = 4, max_iter = 15
     xlab("t-SNE 1") +
     ylab("t-SNE 2") +
     ggtitle("t-SNE") +
-    scale_colour_manual(values = ann_colors$Status)+
-    guides(size = "none",shape="none",alpha="none")
+    scale_colour_manual(values = ann_colors$Status) +
+    guides(size = "none", shape = "none", alpha = "none")
 }
 
-# Function to create UMAP plot
+#' Create UMAP plot
+#'
+#' @param data_beta Beta values
+#' @param data_meta Metadata
+#' @return ggplot object of UMAP plot
 create_umap_plot <- function(data_beta, data_meta) {
   # Get test_id for color scheme
   test_id <- setdiff(unique(data_meta$Status), 
@@ -427,11 +509,18 @@ create_umap_plot <- function(data_beta, data_meta) {
   
   # Create the plot
   ggplot(umap_df) +
-    geom_point(aes(UMAP1, UMAP2,
-                   color = Status,
-                   shape = Status == "proband", 
-                   size=1,
-                   alpha=0.85)) +
+    geom_point(umap_df[umap_df$Status != "proband",], 
+               mapping=aes(UMAP1, UMAP2,
+                           color = Status,
+                           shape = Status == "proband", 
+                           size = 1,
+                           alpha = 0.85)) +
+    geom_point(umap_df[umap_df$Status == "proband",], 
+               mapping=aes(UMAP1, UMAP2,
+                           color = Status,
+                           shape = Status == "proband", 
+                           size = 1,
+                           alpha = 0.85)) +
     theme_minimal() +
     theme(
       legend.position = "bottom",
@@ -441,11 +530,15 @@ create_umap_plot <- function(data_beta, data_meta) {
     xlab("UMAP 1") +
     ylab("UMAP 2") +
     ggtitle("UMAP") +
-    scale_colour_manual(values = ann_colors$Status)+
-    guides(size = "none",shape="none",alpha="none")
+    scale_colour_manual(values = ann_colors$Status) +
+    guides(size = "none", shape = "none", alpha = "none")
 }
 
-# Function to create heatmap
+#' Create heatmap
+#'
+#' @param data_beta Beta values
+#' @param data_meta Metadata
+#' @return Heatmap grob
 create_heatmap <- function(data_beta, data_meta) {
   # Get test_id for color scheme
   test_id <- setdiff(unique(data_meta$Status), 
@@ -481,34 +574,44 @@ create_heatmap <- function(data_beta, data_meta) {
   grid.grabExpr(draw(htm))
 }
 
-# Function to create dimension reduction plots
+#' Create dimension reduction plots
+#'
+#' @param data_beta Beta values
+#' @param data_meta Metadata
+#' @param proband Proband ID
+#' @param signature_name Signature name
+#' @return Combined plot object
 create_dimension_reduction_plots <- function(data_beta, data_meta, proband, signature_name) {
-  
-  goi <- str_split(signature_name, "_", simplify = T)[,1]
-  
+  goi <- str_split(signature_name, "_", simplify = TRUE)[,1]
+
   data_meta <- data_meta[data_meta$Status == goi |
-                           data_meta$Status %in%  c("in_silico_case","control") |
-                           data_meta$IDs == proband,]
-  
-  data_beta <- data_beta[, colnames(data_beta) %in% rownames(data_meta)] 
-  data_beta <- data_beta[, match(rownames(data_meta), colnames(data_beta) )]
+                         data_meta$Status %in% c("in_silico_case", "control") |
+                         data_meta$IDs == proband,]
+
+  data_beta <- data_beta[, colnames(data_beta) %in% rownames(data_meta)]
+  data_beta <- as.data.frame(t(data_beta))
+  data_beta <- data_beta[!duplicated(data_beta), ]
+  data_beta <- as.data.frame(t(data_beta))
+  data_meta <- data_meta[rownames(data_meta) %in% colnames(data_beta),]
+  data_beta <- data_beta[, match(rownames(data_meta), colnames(data_beta))]
   # PCA plot
+  
   p <- pca(data_beta, data_meta)
   pca_plot <- create_pca_plot(p)
-  
+
   # t-SNE plot
   tsne_plot <- create_tsne_plot(data_beta, data_meta)
-  
+
   # UMAP plot
   umap_plot <- create_umap_plot(data_beta, data_meta)
-  
+
   # Heatmap
   heatmap_plot <- create_heatmap(data_beta, data_meta)
-  
+
   # Combine plots
   combined_plot <- (pca_plot + heatmap_plot) / (tsne_plot + umap_plot) +
     plot_annotation(title = signature_name,
-                    subtitle = paste("Proband:", proband))
-  
+                   subtitle = paste("Proband:", proband))
+
   return(combined_plot)
 }
