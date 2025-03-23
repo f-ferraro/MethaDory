@@ -26,10 +26,11 @@ git clone git@github.com:f-ferraro/MethaDory.git
 
 
 ## Running MethaDory 
+
 ```
 cd MethaDory
 pixi run rscript ShinyApp-MethylClassifier.r
 
 ```
-
+The command will take care of installing the necessary prerequisites and launching the app.
 If the local web browser doesn't open automatically, double click on the link shown on the terminal. 
