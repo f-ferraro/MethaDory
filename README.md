@@ -1,5 +1,7 @@
 # MethaDory
 
+<img style="float: right;" src="methadory.png" width="200">
+
 MethaDory is a shiny app for testing of DNAm signatures as described in XXX. 
 
 If you use MethaDory please cite our work and consider starring this repository :) 
