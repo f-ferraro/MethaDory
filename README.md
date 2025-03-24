@@ -23,8 +23,9 @@ You might need to restart your terminal for the installation to take effect
 Now clone the MethaDory git page and download ChAMPdata v2.38.0
 
 ```
-git clone git@github.com:f-ferraro/MethaDory.git #or download the repository locally, unzip it
-cd MethaDory #open the folder of the repository
+git clone git@github.com:f-ferraro/MethaDory.git
+#or download the repository locally, unzip it, then open the folder of the repository
+cd MethaDory
 wget https://bioconductor.org/packages/release/data/experiment/src/contrib/ChAMPdata_2.38.0.tar.gz
 ```
 
