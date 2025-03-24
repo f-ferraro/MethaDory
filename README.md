@@ -4,8 +4,8 @@
 
 MethaDory is a shiny app for testing of DNAm signatures as described in XXX. 
 
-If you use MethaDory please cite our work and consider starring this repository :) 
-
+If you use MethaDory please cite our work and consider starring this repository to follow updates :) 
+MethaDory is currently in beta testing and is in active development to provide more signatures and optimisations for long-read sequencing, so stay tuned for the latest version! 
 
 ## Installation
 
