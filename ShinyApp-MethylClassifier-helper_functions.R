@@ -546,7 +546,8 @@ create_umap_plot <- function(data_beta, data_meta) {
   ann_colors <- create_annotation_colors(test_id)
   
   # Run UMAP
-  umap_results <- umap(t(data_beta))
+  umap_results <- umap(t(data_beta), 
+                       n_neighbors = 2 * sqrt(ncol(data_beta)))
   
   # Create data frame for plotting
   umap_df <- data.frame(
@@ -658,7 +659,9 @@ create_dimension_reduction_plots <- function(data_beta, data_meta, proband, sign
   data_meta <- data_meta[rownames(data_meta) %in% colnames(data_beta),]
   data_beta <- data_beta[, match(rownames(data_meta), colnames(data_beta))]
   # PCA plot
+  data_beta = na.omit(data_beta)
   
+  saveRDS(data_beta, "data_beta.rds")
   p <- pca(data_beta, data_meta)
   pca_plot <- create_pca_plot(p)
 
