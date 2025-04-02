@@ -164,6 +164,19 @@ make_predictions <- function(test_for_inference, svm, test_data_ids) {
         results[[paste(i, j)]] <- predict(svm[[j]],
                                           newdata = t(test_for_inference[[i]]),
                                           type = "prob")
+        print("Data is:")
+        print(results[[paste(i, j)]])
+        
+        print("Names are")
+        print(names(test_for_inference[[i]]))
+        
+        print("Pred shape is:")
+        print(dim(results[[paste(i, j)]]))
+        
+        print("Names are")
+        print(ncol((test_for_inference[[i]])))
+              
+              
         results[[paste(i, j)]]$SampleID <- names(test_for_inference[[i]])
       }
     }
@@ -206,7 +219,7 @@ process_results <- function(results, test_data_ids) {
 load_beta_signatures <- function() {
   insilico_beta <- readRDS("data/syntheticcases/samples_for_insilico.beta.rds")
   insilico_meta <- readRDS("data/syntheticcases/samples_for_insilico.meta.rds")
-  signatures <- read.table('data/merged_signatures_90DMRs.tsv', header = TRUE)
+  signatures <- read.delim('data/merged_signatures_90DMRs.tsv', header = TRUE)
   signatures <- split(signatures, f = as.factor(paste(signatures$Label)))
   
   return(list(
