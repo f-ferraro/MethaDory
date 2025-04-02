@@ -30,7 +30,7 @@ library(scales)
 #' @param file_path Path to the test data file
 #' @return List containing the test data and test data IDs
 load_test_data <- function(file_path) {
-  test_data_user <- read.table(file_path, header = TRUE)
+  test_data_user <- read.delim(file_path, header = TRUE)
   test_data <- test_data_user %>% relocate(IlmnID)
   
   return(list(
