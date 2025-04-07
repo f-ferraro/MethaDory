@@ -16,7 +16,7 @@ ui <- dashboardPage(
     fileInput("dataFile", "Upload Test Data (.tsv)
               
               [Max 300MB]",
-              accept = c(".tsv")),
+              accept = c(".tsv", ".txt" )),
     actionButton("loadData", "Load Data", class = "btn-primary",
                  style="margin: 0px 0px 0px 70px;"),
     
@@ -47,6 +47,8 @@ ui <- dashboardPage(
         id = "tabset1", height = "800px", width =  "600px", 
         tabPanel("Welcome",  includeMarkdown("help.md") ),
         
+        tabPanel("Missing values in input", DTOutput("missingValTable")),
+        
         tabPanel("Prediction results plots", 
                  div(style ='width:1400px; overflow-x: scroll; height:800px;',# width: 100%;',
                      div(style = "mix-width: 800px; overflow-x: scroll;",
@@ -54,12 +56,16 @@ ui <- dashboardPage(
                            layout(yaxis = list(
                              fixedrange=TRUE))
                  )
-        ))
+        )),
         
-        ,
-        tabPanel("Prediction table", DTOutput("predictionTable")),
+        tabPanel("SVM prediction table", DTOutput("predictionTable")),
         tabPanel("Cell proportion deconvolution", 
-                 plotOutput("cellpropPlot", height = "500px"))
+                 plotOutput("cellpropPlot", height = "500px")),
+        
+        tabPanel("Chromosomal sex prediction", 
+                 DTOutput("chrSexTable", height = "500px"))#,
+        # tabPanel("Methylation age prediction", 
+        #          DTOutput("methAgeTable", height = "500px"))
         
       )
     ),
@@ -254,6 +260,42 @@ server <- function(input, output, session) {
   
   
   show_modal_spinner()
+  
+
+
+  
+  # Create dynamic missing value table
+  output$missingValTable <- renderDT({
+    req(values$data_list$test_data, 
+        input$proband,
+        values$beta_sig_data$signatures,
+        input$signatures)
+    
+    datatable(
+      count_missing_data(values$data_list$test_data, 
+                         input$proband,
+                         values$beta_sig_data$signatures,
+                         input$signatures)
+    )
+  })
+  
+  
+  
+  
+  
+  # Create dynamic predicted age table
+  output$chrSexTable <- renderDT({
+    req(values$imputed_data, input$proband
+    )
+    
+    datatable(
+      predict_chr_sex(values$data_list$test_data, 
+                      input$proband)
+    )
+  })
+  
+  
+  
   # Create dynamic prediction table
   output$predictionTable <- renderDT({
     req(values$results, input$proband, input$signatures)
@@ -263,6 +305,7 @@ server <- function(input, output, session) {
                        values$results$SVM %in% gsub("_", " ",input$signatures), ]
     )
   })
+  
   
   
   # Create prediction plot

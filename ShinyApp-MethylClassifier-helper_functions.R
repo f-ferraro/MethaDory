@@ -25,12 +25,16 @@ library(shinyFiles)
 library(tidyverse)
 library(umap)
 library(scales)
+library(EWASex)
+
+devtools::install_github("Silver-Hawk/EWASex/EWASex")
 #' Load and prepare test data
 #'
 #' @param file_path Path to the test data file
 #' @return List containing the test data and test data IDs
 load_test_data <- function(file_path) {
   test_data_user <- read.delim(file_path, header = TRUE)
+  
   test_data <- test_data_user %>% relocate(IlmnID)
   
   return(list(
@@ -38,6 +42,10 @@ load_test_data <- function(file_path) {
     test_data_ids = setdiff(names(test_data), "IlmnID")
   ))
 }
+
+
+
+
 
 #' Load background data and SVM models
 #'
@@ -164,18 +172,7 @@ make_predictions <- function(test_for_inference, svm, test_data_ids) {
         results[[paste(i, j)]] <- predict(svm[[j]],
                                           newdata = t(test_for_inference[[i]]),
                                           type = "prob")
-        print("Data is:")
-        print(results[[paste(i, j)]])
-        
-        print("Names are")
-        print(names(test_for_inference[[i]]))
-        
-        print("Pred shape is:")
-        print(dim(results[[paste(i, j)]]))
-        
-        print("Names are")
-        print(ncol((test_for_inference[[i]])))
-              
+        print(paste("Processing", i)) 
               
         results[[paste(i, j)]]$SampleID <- names(test_for_inference[[i]])
       }
@@ -707,7 +704,7 @@ create_dimension_reduction_plots <- function(data_beta, data_meta, proband, sign
 
 
 
-#' Create UMAP plot
+#' Create cell deconvolution plot
 #'
 #' @param cell_prop_input Input to calculate cell proportions, ie. beta values of sample(s) to test
 #' @param cellproportions_background Cell proportions fo the samples used for the tests 
@@ -745,5 +742,116 @@ create_cell_deconv_plot <- function(samples_of_interest_beta, cellproportions_ba
     xlab("") +
     ylim(0, NA) # Ensure y-axis starts at 0
   
+  
+}
+
+
+
+
+
+
+#' Predict chromosomal age
+#'
+#' @param samples_of_interest_beta Input to calculate cell proportions, ie. beta values of sample(s) to test
+#' @param probands Probands of interest
+#' @return table
+predict_age <- function(samples_of_interest_beta, probands) {
+  
+  # samples_of_interest_beta =read.delim("~/Desktop/UniversalMethylClassifier/comparison_arrays/imputed/beta.testings.imputed.ont.inhouse.5.tsv")
+  # 
+  # rownames(samples_of_interest_beta) = samples_of_interest_beta$IlmnID
+  # samples_of_interest_beta$IlmnID = NULL
+  # 
+  # samples_of_interest_beta = samples_of_interest_beta[, probands]
+  
+  
+}
+
+
+
+
+
+
+#' Predict chromosomal sex
+#'
+#' @param samples_of_interest_beta Input to calculate cell proportions, ie. beta values of sample(s) to test
+#' @param probands Probands of interest
+#' @return table
+predict_chr_sex <- function(samples_of_interest_beta, probands) {
+  
+  
+  rownames(samples_of_interest_beta) = samples_of_interest_beta$IlmnID
+  samples_of_interest_beta$IlmnID = NULL
+  
+  # Subset to only use the 49 best CpGs
+  
+  df <- samples_of_interest_beta[rownames(samples_of_interest_beta) %in% EWASex.getGoldCpGNames(), ]
+  
+  MeansAndSD49 = readRDS("data/EWASex.rds")
+  
+  for (sex in names(MeansAndSD49)){
+    
+    for (metric in names(MeansAndSD49[[sex]])){
+      
+      MeansAndSD49[[sex]][[metric]] = MeansAndSD49[[sex]][[metric]][names(MeansAndSD49[[sex]][[metric]]) 
+                                                                    %in% rownames(df)]
+    }
+  }
+  
+  # Fill in missing values with the average
+  df[] <- lapply(df, function(col) {
+    col[is.na(col)] <- mean(col, na.rm = TRUE)
+    return(col)
+  })
+  
+  # Do prediction
+  preds <- EWASex.predict(df = df, means = MeansAndSD49, margin = 1)
+  preds <- tibble::rownames_to_column(preds, "Proband")
+
+  print(preds)
+  output = data.frame("Proband"=preds$Proband,
+                     "predictedSex"=preds$predictedGender)
+  
+  print(output)
+  return(preds)
+  
+}
+
+
+
+
+#' Load and prepare test data
+#'
+#' @param test_data_user_pre_imputation Loaded object
+#' @return Dataframe containing the number of missing values data and test data IDs
+count_missing_data <- function(test_data_user_pre_imputation, probands, svms, svms_of_interest) {
+  
+  
+  # Extract predictors from each SVM model
+  signatures <- list()
+  for (signature in names(svms[names(svms) %in% svms_of_interest])) {
+    signatures[[signature]] <-svms[[signature]]$ProbeID
+  }
+  
+
+  # Subset data to relevant columns
+  tmp_mis_holder <- test_data_user_pre_imputation[, c("IlmnID", probands)]
+  rownames(tmp_mis_holder) = tmp_mis_holder$IlmnID
+  
+  
+  result <- data.frame("Percent of missing CpGs in" = c("Input", names(signatures)), stringsAsFactors = FALSE)
+  
+  for (col in colnames(tmp_mis_holder)) {
+    overall_missing <- 100 * sum(is.na(tmp_mis_holder[[col]]))/length(tmp_mis_holder[[col]])
+    
+    set_missing <- 100 * sapply(signatures, function(set) sum(is.na(tmp_mis_holder[set, col]) /
+                                                                length(tmp_mis_holder[set, col])))
+    
+    result[[col]] <- c(overall_missing, set_missing)
+  }
+  
+  result$IlmnID = NULL
+  
+  return(result)
   
 }
