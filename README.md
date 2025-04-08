@@ -25,7 +25,7 @@ You might need to restart your terminal for the installation to take effect
 
 ### Clone the repository 
 
-To obtain, MethaDory clone its git page
+To obtain MethaDory clone its git page
 
 ```
 git clone git@github.com:f-ferraro/MethaDory.git
