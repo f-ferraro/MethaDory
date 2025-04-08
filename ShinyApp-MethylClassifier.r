@@ -49,7 +49,7 @@ ui <- dashboardPage(
         
         tabPanel("Missing values in input", DTOutput("missingValTable")),
         
-        tabPanel("Prediction results plots", 
+        tabPanel("Prediction results plot", 
                  div(style ='width:1400px; overflow-x: scroll; height:800px;',# width: 100%;',
                      div(style = "mix-width: 800px; overflow-x: scroll;",
                          plotlyOutput("predictionPlot") %>% 
@@ -60,13 +60,15 @@ ui <- dashboardPage(
         
         tabPanel("SVM prediction table", DTOutput("predictionTable")),
         tabPanel("Cell proportion deconvolution", 
-                 plotOutput("cellpropPlot", height = "500px")),
+                 plotlyOutput("cellpropPlot", height = "500px")),
         
         tabPanel("Chromosomal sex prediction", 
-                 DTOutput("chrSexTable", height = "500px"))#,
-        # tabPanel("Methylation age prediction", 
-        #          DTOutput("methAgeTable", height = "500px"))
+                 plotlyOutput("chrSexPlot", height = "500px")),
         
+        tabPanel("Methylation age prediction",
+                 DTOutput("methAgeTable", height = "500px")),
+        
+        tabPanel("References",  includeMarkdown("references.md") )
       )
     ),
     fluidRow(
@@ -189,6 +191,16 @@ server <- function(input, output, session) {
                                                   values$real_cases_data$real_cases_meta)
 
     remove_modal_spinner()
+    
+    # Perform cell type deconvolution
+    values$cell_props = create_cell_deconv_table(values$data_list$test_data)
+    
+    # Perform chromosomal sex prediction 
+    values$chr_sex_table = predict_chr_sex_table(values$data_list$test_data)
+    
+    # Perform age prediction
+    values$age_table = predict_age(values$data_list$test_data)
+    
     # Update UI elements
     updateCheckboxGroupInput(session, "proband",
                              choices = values$data_list$test_data_ids)
@@ -283,14 +295,22 @@ server <- function(input, output, session) {
   
   
   
-  # Create dynamic predicted age table
-  output$chrSexTable <- renderDT({
-    req(values$imputed_data, input$proband
+  # Create dynamic predicted sex plot
+  output$chrSexPlot <- renderPlotly({
+    req(values$chr_sex_table, input$proband
     )
     
-    datatable(
-      predict_chr_sex(values$data_list$test_data, 
+      predict_chr_sex_plot(values$chr_sex_table, 
                       input$proband)
+  })
+  
+  
+  # Create dynamic predicted age table
+  output$methAgeTable <- renderDT({
+    req(values$age_table, input$proband
+    )
+
+    datatable(values$age_table[values$age_table$Proband %in% input$proband, ]
     )
   })
   
@@ -321,12 +341,12 @@ server <- function(input, output, session) {
   })
   
   # Cell proportion plot 
-  output$cellpropPlot <- renderPlot({
-    req(values$data_list$test_data, 
+  output$cellpropPlot <- renderPlotly({
+    req(values$cell_props, 
         values$background_data$cellprops,
         input$proband)
     
-    create_cell_deconv_plot(values$data_list$test_data, 
+    create_cell_deconv_plot(values$cell_props, 
                             values$background_data$cellprops,
                             input$proband)
   })
@@ -376,7 +396,7 @@ server <- function(input, output, session) {
   remove_modal_spinner() 
   output$downloadResults <- downloadHandler(
     filename = function() {
-      paste0("MethaDory_results_", Sys.Date(), ".tsv")
+      paste0("MethaDory_results_", Sys.Date(), ".xlsx")
     },
     content = function(file) {
       
@@ -390,8 +410,18 @@ server <- function(input, output, session) {
       names(export_table) = gsub("pSVM_", "pSVM", names(export_table))
       names(export_table) = gsub("_", " ", names(export_table))
       
+      cell_props_exports = values$cell_props[values$cell_props$Proband %in% input$proband,]
       
-      write.table(export_table, file, quote = F, row.names = F, sep = "\t")
+      cell_props_exports = pivot_wider(cell_props_exports,
+                                 id_cols = "Proband",  
+                                 names_from = "CellType", 
+                                 values_from = "CellProp")
+      
+      openxlsx::write.xlsx(list("MethaDory Predictions" = export_table, 
+                       "Cell deconvolutions" = cell_props_exports,
+                       "Predicted age" = values$age_table[values$age_table$Proband %in% input$proband,],
+                       "Predicted chr sex" = values$chr_sex_table[values$age_table$Proband %in% input$proband,]
+                        ), file, quote = F, row.names = F, sep = "\t")
     }
   )
   output$downloadPlots <- downloadHandler(

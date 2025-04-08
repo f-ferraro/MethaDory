@@ -1,16 +1,34 @@
 # Helper functions for MethaDory app
+
+# Add packages that are broken in pixi
+packages <- c("ChAMPdata", "FDb.InfiniumMethylation.hg19", "GenomeInfoDb", "IlluminaHumanMethylation450kanno.ilmn12.hg19")
+
+for (pkg in packages) {
+  if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
+    
+    
+    BiocManager::install("GenomeInfoDb")
+  
+    BiocManager::install("FDb.InfiniumMethylation.hg19")
+    
+    BiocManager::install("IlluminaHumanMethylation450kanno.ilmn12.hg19")
+    BiocManager::install("ChAMPdata")
+    
+    
+  }
+}
+
+
 # Load required libraries
 library(BiocParallel)
 library(caret)
-paste0(getwd(),"/ChAMPdata_2.38.0.tar.gz")
-install.packages(paste0(getwd(),"/ChAMPdata_2.38.0.tar.gz"),
-                 repos = NULL, type="source")
-
 library(circlize)
+suppressPackageStartupMessages(library(ComplexHeatmap))
 library(ComplexHeatmap)
 library(data.table)
 library(DT)
 library(EpiDISH)
+library(wateRmelon)
 library(fs)
 library(ggplotify)
 library(methyLImp2)
@@ -25,9 +43,9 @@ library(shinyFiles)
 library(tidyverse)
 library(umap)
 library(scales)
-library(EWASex)
 
-devtools::install_github("Silver-Hawk/EWASex/EWASex")
+
+
 #' Load and prepare test data
 #'
 #' @param file_path Path to the test data file
@@ -86,7 +104,7 @@ load_background_data <- function(model_dir) {
   
   
   # Read cell props from the background 
-  cellprops = readRDS("data/background_training.cellprops.rds")
+  cellprops = readRDS("data/support_files/background_training.cellprops.rds")
   
   
   return(list(
@@ -127,7 +145,7 @@ prepare_imputation_data <- function(test_data, imputation_background, svm) {
 #' @param test_sample_ids IDs of test samples
 #' @return Imputed data frame
 perform_imputation <- function(test_data, test_sample_ids) {
-  manifest <- readRDS("data/manifest.qc_filtered.rds")
+  manifest <- readRDS("data/support_files/manifest.qc_filtered.rds")
   manifest$MAPINFO <- NULL
   names(manifest) <- c('cpg', 'chr')
   
@@ -216,7 +234,7 @@ process_results <- function(results, test_data_ids) {
 load_beta_signatures <- function() {
   insilico_beta <- readRDS("data/syntheticcases/samples_for_insilico.beta.rds")
   insilico_meta <- readRDS("data/syntheticcases/samples_for_insilico.meta.rds")
-  signatures <- read.delim('data/merged_signatures_90DMRs.tsv', header = TRUE)
+  signatures <- read.delim('data/support_files/merged_signatures_90DMRs.tsv', header = TRUE)
   signatures <- split(signatures, f = as.factor(paste(signatures$Label)))
   
   return(list(
@@ -671,7 +689,6 @@ create_dimension_reduction_plots <- function(data_beta, data_meta, proband, sign
   # PCA plot
   data_beta = na.omit(data_beta)
   
-  saveRDS(data_beta, "data_beta.rds")
   p <- pca(data_beta, data_meta)
   pca_plot <- create_pca_plot(p)
 
@@ -707,9 +724,9 @@ create_dimension_reduction_plots <- function(data_beta, data_meta, proband, sign
 #' Create cell deconvolution plot
 #'
 #' @param cell_prop_input Input to calculate cell proportions, ie. beta values of sample(s) to test
-#' @param cellproportions_background Cell proportions fo the samples used for the tests 
-#' @return ggplot for cell proportions
-create_cell_deconv_plot <- function(samples_of_interest_beta, cellproportions_background, probands) {
+#' @return table for cell proportions
+#' 
+create_cell_deconv_table <- function(samples_of_interest_beta) {
   
   rownames(samples_of_interest_beta) = samples_of_interest_beta$IlmnID
   samples_of_interest_beta$IlmnID = NULL
@@ -721,14 +738,30 @@ create_cell_deconv_plot <- function(samples_of_interest_beta, cellproportions_ba
   bf$CellType = rownames(bf)
   
   bf = pivot_longer(bf, -"CellType",
-                    names_to="Sample",
+                    names_to="Proband",
                     values_to="CellProp")
   
-  ggplot() + 
-    geom_jitter(cellproportions_background, mapping=aes(CellType, CellProp),
-                size = 1, width = 0.25, height = 0, alpha=0.20) +
-    geom_jitter(bf[bf$Sample %in% probands,], mapping=aes(CellType, CellProp, color=Sample),
-                size = 5,  width = 0.25, height = 0) +
+  return(bf)
+  
+  
+}
+
+#' Create cell deconvolution plot
+#'
+#' @param cell_prop_input Input to calculate cell proportions, ie. beta values of sample(s) to test
+#' @param cellproportions_background Cell proportions fo the samples used for the tests 
+#' @return ggplot for cell proportions
+create_cell_deconv_plot <- function(create_cell_deconv_table, cellproportions_background, probands) {
+
+ggplot() + 
+    # Static background points
+    geom_jitter(data =  cellproportions_background, 
+                mapping = aes(CellType, CellProp),
+                size = 1, width = 0.25, height = 0, alpha = 0.20) +
+    # Interactive foreground points
+    geom_jitter(data = create_cell_deconv_table[create_cell_deconv_table$Proband %in% probands,], 
+                mapping = aes(CellType, CellProp, color = Proband),
+                size = 5, width = 0.25, height = 0) +
     theme_classic() +
     theme(
       legend.position = "bottom",
@@ -737,10 +770,11 @@ create_cell_deconv_plot <- function(samples_of_interest_beta, cellproportions_ba
       axis.title = element_text(size = 14, face = "bold"),
       plot.margin = margin(20, 20, 20, 20)
     ) +
-    ggtitle("Cell proportions of tested samples compared to that of samples in SVM training set")+
+    ggtitle("Cell proportions of tested samples compared to that of samples in SVM training set") +
     ylab("Deconvoluted cell proportions") +
     xlab("") +
-    ylim(0, NA) # Ensure y-axis starts at 0
+    ylim(0, NA)
+  
   
   
 }
@@ -755,19 +789,17 @@ create_cell_deconv_plot <- function(samples_of_interest_beta, cellproportions_ba
 #' @param samples_of_interest_beta Input to calculate cell proportions, ie. beta values of sample(s) to test
 #' @param probands Probands of interest
 #' @return table
-predict_age <- function(samples_of_interest_beta, probands) {
+predict_age <- function(test_beta) {
+  print("Predicting age")
+  rownames(test_beta) = test_beta$IlmnID
+  test_beta$IlmnID = NULL
+
+  ages = agep(test_beta, method='all') 
   
-  # samples_of_interest_beta =read.delim("~/Desktop/UniversalMethylClassifier/comparison_arrays/imputed/beta.testings.imputed.ont.inhouse.5.tsv")
-  # 
-  # rownames(samples_of_interest_beta) = samples_of_interest_beta$IlmnID
-  # samples_of_interest_beta$IlmnID = NULL
-  # 
-  # samples_of_interest_beta = samples_of_interest_beta[, probands]
+  ages = tibble::rownames_to_column(ages, "Proband")
   
-  
+  return(as.data.frame(ages))
 }
-
-
 
 
 
@@ -777,43 +809,44 @@ predict_age <- function(samples_of_interest_beta, probands) {
 #' @param samples_of_interest_beta Input to calculate cell proportions, ie. beta values of sample(s) to test
 #' @param probands Probands of interest
 #' @return table
-predict_chr_sex <- function(samples_of_interest_beta, probands) {
+predict_chr_sex_table <- function(test_beta) {
+  print("Predicting chromosomal sex")
+  rownames(test_beta) = test_beta$IlmnID
+  test_beta$IlmnID = NULL
   
+  x = estimateSex(test_beta, do_plot=F)
+  x = tibble::rownames_to_column(x, "Proband")
+  return(x)
   
-  rownames(samples_of_interest_beta) = samples_of_interest_beta$IlmnID
-  samples_of_interest_beta$IlmnID = NULL
-  
-  # Subset to only use the 49 best CpGs
-  
-  df <- samples_of_interest_beta[rownames(samples_of_interest_beta) %in% EWASex.getGoldCpGNames(), ]
-  
-  MeansAndSD49 = readRDS("data/EWASex.rds")
-  
-  for (sex in names(MeansAndSD49)){
-    
-    for (metric in names(MeansAndSD49[[sex]])){
-      
-      MeansAndSD49[[sex]][[metric]] = MeansAndSD49[[sex]][[metric]][names(MeansAndSD49[[sex]][[metric]]) 
-                                                                    %in% rownames(df)]
-    }
-  }
-  
-  # Fill in missing values with the average
-  df[] <- lapply(df, function(col) {
-    col[is.na(col)] <- mean(col, na.rm = TRUE)
-    return(col)
-  })
-  
-  # Do prediction
-  preds <- EWASex.predict(df = df, means = MeansAndSD49, margin = 1)
-  preds <- tibble::rownames_to_column(preds, "Proband")
+}
 
-  print(preds)
-  output = data.frame("Proband"=preds$Proband,
-                     "predictedSex"=preds$predictedGender)
+
+
+#' Predict chromosomal sex
+#'
+#' @param samples_of_interest_beta Input to calculate cell proportions, ie. beta values of sample(s) to test
+#' @param probands Probands of interest
+#' @return table
+predict_chr_sex_plot <- function(chr_sex_table, probands) {
+  print("Plotting predicted chromosomal sex")
   
-  print(output)
-  return(preds)
+  x = chr_sex_table[chr_sex_table$Proband %in% probands,] 
+  
+  boundary = max(x$X, abs(x$X), x$Y, abs(x$Y))
+  
+  ggplot(x[x$Proband %in% probands,], aes(X, Y, color=Proband))+
+    geom_vline(xintercept = 0)+
+    geom_hline(yintercept = 0)+
+    annotate("text", label = "47, XXY", x = boundary + 5, y = boundary + 5, size = 6, colour = "darkred")+
+    annotate("text", label = "46 XX", x = boundary + 5, y = -(boundary + 5), size = 6, colour = "black")+
+    annotate("text", label = "45, X0", x = -(boundary + 5), y = -(boundary + 5), size = 6, colour = "darkred")+
+    annotate("text", label = "46, XY", x = -(boundary + 5), y = boundary + 5, size = 6, colour = "black")+
+    xlim(-boundary-7, boundary+7)+
+    ylim(-boundary-7, boundary+7)+
+    geom_point(size=6)+
+    theme_minimal()+
+    theme(legend.position = "none")+
+    ggtitle("Chromosomal sex prediction")
   
 }
 

@@ -25,20 +25,19 @@ You might need to restart your terminal for the installation to take effect
 
 ### Clone the repository 
 
-To obtain, MethaDory clone its git page and download ChAMPdata v2.38.0
+To obtain, MethaDory clone its git page
 
 ```
 git clone git@github.com:f-ferraro/MethaDory.git
-cd MethaDory
-wget https://bioconductor.org/packages/release/data/experiment/src/contrib/ChAMPdata_2.38.0.tar.gz
 ```
 
 ## Running MethaDory 
 
+From the directory where you cloned MethaDory, run:
 ```
-pixi run rscript ShinyApp-MethylClassifier.r
+pixi run MethaDory
 ```
-The command will take care of installing the necessary prerequisites and launching the app.
+The first time you run the command, allow some time (~15') to the command to install the necessary prerequisites and lanch the app. 
 If the local web browser doesn't open automatically, double click on the link shown on the terminal. 
 
 
