@@ -1,81 +1,64 @@
-# app.R
-# Max user input size
-options(shiny.maxRequestSize=300*1024^2)
+library(shiny)
+library(shinydashboard)
+library(shinyFiles)
+library(DT)
+library(plotly)
+
+options(shiny.maxRequestSize = 300 * 1024^2)
 
 source("ShinyApp-MethylClassifier-helper_functions.R")
 
 ui <- dashboardPage(
   dashboardHeader(title = "MethaDory"),
   dashboardSidebar(
-    
     shinyDirButton("modelDir", "Select Model Folder", "Please select folder containing SVM models",
                    style="margin: 5px 5px 5px 45px;"),
     verbatimTextOutput("modelDirPath"),
     hr(),
-    
-    fileInput("dataFile", "Upload Test Data (.tsv)
-              
-              [Max 300MB]",
-              accept = c(".tsv", ".txt" )),
-    actionButton("loadData", "Load Data", class = "btn-primary",
-                 style="margin: 0px 0px 0px 70px;"),
-    
-    checkboxGroupInput("proband", "Select Proband(s) for plotting",
-                       choices = NULL),
+    fileInput("dataFile", "Upload Test Data (.tsv)\n\n[Max 300MB]",
+              accept = c(".tsv", ".txt")),
+    actionButton("loadData", "Load Data", class = "btn-primary", style = "margin: 0px 0px 0px 70px;"),
+    checkboxGroupInput("proband", "Select Proband(s) for plotting", choices = NULL),
     fluidRow(
       column(5, actionButton("selectAllprobands", "Select All")),
       column(4, actionButton("deselectAllprobands", "Deselect All"))
     ),
-    
     hr(),
-    
     fluidRow(
       column(5, actionButton("selectAllsignatures", "Select All")),
       column(4, actionButton("deselectAllsignatures", "Deselect All"))
     ),
-    checkboxGroupInput("signatures", "Select Signature(s) for plotting",
-                       choices = NULL),
+    checkboxGroupInput("signatures", "Select Signature(s) for plotting", choices = NULL),
     hr(),
-    downloadButton("downloadResults", "Download Results",
-                   style="margin: 5px 5px 5px 35px;"),
-    downloadButton("downloadPlots", "Download Plots",
-                   style="margin: 5px 5px 5px 42.5px;")
+    downloadButton("downloadResults", "Download Results", style="margin: 5px 5px 5px 35px;"),
+    downloadButton("downloadPlots", "Download Plots", style="margin: 5px 5px 5px 42.5px;")
   ),
   dashboardBody(
     fluidRow(style='height:60vh',
-      tabBox(
-        id = "tabset1", height = "800px", width =  "600px", 
-        tabPanel("Welcome",  includeMarkdown("help.md") ),
-        
-        tabPanel("Missing values in input", DTOutput("missingValTable")),
-        
-        tabPanel("Prediction results plot", 
-                 div(style ='width:1400px; overflow-x: scroll; height:800px;',# width: 100%;',
-                     div(style = "mix-width: 800px; overflow-x: scroll;",
-                         plotlyOutput("predictionPlot") %>% 
-                           layout(yaxis = list(
-                             fixedrange=TRUE))
-                 )
-        )),
-        
-        tabPanel("SVM prediction table", DTOutput("predictionTable")),
-        tabPanel("Cell proportion deconvolution", 
-                 plotlyOutput("cellpropPlot", height = "500px")),
-        
-        tabPanel("Chromosomal sex prediction", 
-                 plotlyOutput("chrSexPlot", height = "500px")),
-        
-        tabPanel("Methylation age prediction",
-                 DTOutput("methAgeTable", height = "500px")),
-        
-        tabPanel("References",  includeMarkdown("references.md") )
-      )
+             tabBox(
+               id = "tabset1", height = "800px", width =  "600px", 
+               tabPanel("Welcome", includeMarkdown("help.md")),
+               
+               #tabPanel("Missing values in input", DTOutput("missingValTable")),
+               
+               tabPanel("Prediction results plot", 
+                        div(style = 'overflow-x: auto; white-space: nowrap;',
+                            plotlyOutput("predictionPlot", height = "800px")  
+                        )
+               ),
+               
+               
+               tabPanel("SVM prediction table", DTOutput("predictionTable")),
+               tabPanel("Cell proportion deconvolution", plotOutput("cellpropPlot", height = "700px")),
+               tabPanel("Chromosomal sex prediction", plotOutput("chrSexPlot", height = "800px")),
+               tabPanel("Methylation age prediction", DTOutput("methAgeTable", height = "800px")),
+               tabPanel("References", includeMarkdown("references.md"))
+             )
     ),
     fluidRow(
       box(
         title = "Dimension Reduction Plots",
         width = 12,
-        # Pagination controls
         fluidRow(
           column(4, numericInput("plotsPerPage", "Plots per page:", 1, min = 1, max = 10)),
           column(4, uiOutput("pageControls"))
@@ -88,372 +71,160 @@ ui <- dashboardPage(
 )
 
 server <- function(input, output, session) {
-
-  #Initialize shinyDirChoose with current working directory
-  volumes <- c("Home" = fs::path_home(),
-               "MethaDory Directory" = getwd(),
-               "R Installation" = R.home()
-  )
+  volumes <- c("Home" = fs::path_home(), "MethaDory Directory" = getwd(), "R Installation" = R.home())
+  shinyDirChoose(input, 'modelDir', defaultRoot = "Home", defaultPath = "MethaDory Directory", session = session, roots = volumes)
   
-  shinyDirChoose(input, 
-                 'modelDir',
-                 defaultRoot = "Home",
-                 defaultPath = "MethaDory Directory",
-                 session = session,
-                 roots = volumes
-  )
+  values <- reactiveValues(data = NULL, model_dir = NULL, current_page = 1)
   
-  values <- reactiveValues(
-    model_dir = NULL,
-    data_list = NULL,
-    background_data = NULL,
-    background_data_cells = NULL,
-    imputed_data = NULL,
-    inference_data = NULL,
-    results = NULL,
-    beta_sig_data = NULL,
-    real_cases_data = NULL,
-    plot_data = NULL,
-    plot_metadata = NULL,
-    current_page = 1
-  )
-  
-  # Display selected model directory
   output$modelDirPath <- renderText({
     if (!is.null(input$modelDir)) {
       values$model_dir <- parseDirPath(volumes, input$modelDir)
       paste(values$model_dir)
     }
   })
-
   
-  
-  # Load data when button is clicked
   observeEvent(input$loadData, {
     req(input$dataFile, values$model_dir)
+    show_modal_spinner(spin = "rotating-plane", color = "#279CED", text = "Please wait...")
     
-    # Validate model directory
-    if (!dir.exists(values$model_dir)) {
-      log_message("Error: Invalid model directory")
-      return()
-    }
+    data_list <- load_test_data(input$dataFile$datapath)
+    background_data <- load_background_data(values$model_dir)
+    imputation_data <- prepare_imputation_data(data_list$test_data, background_data$imputation_background, background_data$svm)
+    imputed_data <- perform_imputation(imputation_data$test_data, data_list$test_data_ids)
     
+    beta_sig_data <- load_beta_signatures()
+    inference_data <- prepare_inference_data(imputed_data, background_data$svm)
+    results <- make_predictions(inference_data, background_data$svm, data_list$test_data_ids)
+    real_cases_data <- load_real_cases(beta_sig_data$signatures)
     
-    # Initial proband selection update after data load
-    observeEvent(input$loadData, {
-      req(values$data_list$test_data_ids)
-      
-      # Update proband choices with all available test data IDs
-      updateCheckboxGroupInput(session, "proband",
-                               choices = values$data_list$test_data_ids,
-                               selected = values$data_list$test_data_ids)  
-    })
-    show_modal_spinner(spin = "rotating-plane",
-                       color =  "#279CED",
-                       text = "Please wait...")
-    # Load test data
-    values$data_list <- load_test_data(input$dataFile$datapath)
-
-    # Load background data
-    values$background_data <- load_background_data(values$model_dir)
-
-    # Prepare and impute data
-    imputation_data <- prepare_imputation_data(values$data_list$test_data,
-                                               values$background_data$imputation_background,
-                                               values$background_data$svm)
-
-    values$imputed_data <- perform_imputation(imputation_data$test_data,
-                                              values$data_list$test_data_ids)
+    plot_data <- prepare_plot_data(beta_sig_data$signatures, beta_sig_data$insilico_beta, imputed_data, real_cases_data$real_cases_beta)
+    plot_metadata <- prepare_plot_metadata(beta_sig_data$signatures, plot_data, imputed_data, real_cases_data$real_cases_meta)
     
-
-    # Load additional data for plotting
-    values$beta_sig_data <- load_beta_signatures()
-
-    # Prepare inference data and make predictions
-    values$inference_data <- prepare_inference_data(values$imputed_data, 
-                                                    values$background_data$svm)
-
-    values$results <- make_predictions(values$inference_data,
-                                       values$background_data$svm,
-                                       values$data_list$test_data_ids)
+    cell_props <- create_cell_deconv_table(data_list$test_data)
+    chr_sex_table <- predict_chr_sex_table(data_list$test_data)
+    age_table <- predict_age(data_list$test_data)
     
-    values$real_cases_data <- load_real_cases(values$beta_sig_data$signatures)
+    values$data <- list(data_list=data_list, background_data=background_data, imputed_data=imputed_data,
+                        beta_sig_data=beta_sig_data, inference_data=inference_data, results=results,
+                        real_cases_data=real_cases_data, plot_data=plot_data, plot_metadata=plot_metadata,
+                        cell_props=cell_props, chr_sex_table=chr_sex_table, age_table=age_table)
     
-    # Prepare plot data
-    values$plot_data <- prepare_plot_data(values$beta_sig_data$signatures,
-                                          values$beta_sig_data$insilico_beta,
-                                          values$imputed_data,
-                                          values$real_cases_data$real_cases_beta)
-
-    values$plot_metadata <- prepare_plot_metadata(values$beta_sig_data$signatures,
-                                                  values$plot_data,
-                                                  values$imputed_data,
-                                                  values$real_cases_data$real_cases_meta)
-
+    updateCheckboxGroupInput(session, "proband", choices = data_list$test_data_ids, selected = data_list$test_data_ids)
+    updateCheckboxGroupInput(session, "signatures", choices = names(beta_sig_data$signatures), selected = character(0))
+    
     remove_modal_spinner()
-    
-    # Perform cell type deconvolution
-    values$cell_props = create_cell_deconv_table(values$data_list$test_data)
-    
-    # Perform chromosomal sex prediction 
-    values$chr_sex_table = predict_chr_sex_table(values$data_list$test_data)
-    
-    # Perform age prediction
-    values$age_table = predict_age(values$data_list$test_data)
-    
-    # Update UI elements
-    updateCheckboxGroupInput(session, "proband",
-                             choices = values$data_list$test_data_ids)
-    
-    updateCheckboxGroupInput(session, "signatures",
-                             choices = names(values$beta_sig_data$signatures))
   })
   
-  # Pagination controls
+  observeEvent(input$selectAllprobands, {
+    req(values$data)
+    updateCheckboxGroupInput(session, "proband", choices = values$data$data_list$test_data_ids, selected = values$data$data_list$test_data_ids)
+  })
+  observeEvent(input$deselectAllprobands, {
+    req(values$data)
+    updateCheckboxGroupInput(session, "proband", choices = values$data$data_list$test_data_ids, selected = character(0))
+  })
+  observeEvent(input$selectAllsignatures, {
+    req(values$data)
+    updateCheckboxGroupInput(session, "signatures", choices = names(values$data$beta_sig_data$signatures), selected = names(values$data$beta_sig_data$signatures))
+  })
+  observeEvent(input$deselectAllsignatures, {
+    req(values$data)
+    updateCheckboxGroupInput(session, "signatures", choices = names(values$data$beta_sig_data$signatures), selected = character(0))
+  })
+  
+  output$missingValTable <- renderDT({
+    req(values$data, input$proband, input$signatures)
+    datatable(count_missing_data(values$data$data_list$test_data, input$proband, values$data$beta_sig_data$signatures, input$signatures))
+  })
+  output$chrSexPlot <- renderPlot({
+    req(values$data, input$proband)
+    predict_chr_sex_plot(values$data$chr_sex_table, input$proband)
+  })
+  output$methAgeTable <- renderDT({
+    req(values$data, input$proband)
+    datatable(values$data$age_table[values$data$age_table$Proband %in% input$proband, ])
+  })
+  output$predictionTable <- renderDT({
+    req(values$data, input$proband, input$signatures)
+    datatable(values$data$results[values$data$results$SampleID %in% input$proband &
+                                    values$data$results$SVM %in% gsub("_", " ", input$signatures), ])
+  })
+  output$predictionPlot <- renderPlotly({
+    req(values$data, input$proband, input$signatures)
+    plot_width <- 100 + (length(input$signatures) * 100)
+    
+    create_prediction_plot(values$data$results, input$proband, input$signatures, plot_width) 
+  })
+  output$cellpropPlot <- renderPlot({
+    req(values$data, input$proband)
+    create_cell_deconv_plot(values$data$cell_props, values$data$background_data$cellprops, input$proband) 
+    
+  })
+  
   output$pageControls <- renderUI({
     req(input$signatures)
     total_pages <- ceiling(length(input$signatures) / input$plotsPerPage)
-    
     if (total_pages > 1) {
-      div(
-        actionButton("prevPage", "Previous"),
-        span(paste("Page", values$current_page, "of", total_pages)),
-        actionButton("nextPage", "Next")
-      )
+      div(actionButton("prevPage", "Previous"), span(paste("Page", values$current_page, "of", total_pages)), actionButton("nextPage", "Next"))
     }
   })
-  
-  # Handle pagination
   observeEvent(input$prevPage, {
     values$current_page <- max(1, values$current_page - 1)
   })
-  
   observeEvent(input$nextPage, {
     total_pages <- ceiling(length(input$signatures) / input$plotsPerPage)
     values$current_page <- min(total_pages, values$current_page + 1)
   })
   
-  
-  
-  # Handle Select All button for probands 
-  observeEvent(input$selectAllprobands, {
-    req(values$data_list$test_data_ids)
-    updateCheckboxGroupInput(session, "proband",
-                             choices = values$data_list$test_data_ids,
-                             selected = values$data_list$test_data_ids)
-  })
-  
-  # Handle Deselect All button for probands 
-  observeEvent(input$deselectAllprobands, {
-    req(values$data_list$test_data_ids)
-    updateCheckboxGroupInput(session, "proband",
-                             choices = values$data_list$test_data_ids,
-                             selected = character(0))
-  })
-  
-  
-  
-  # Handle Select All button signatures 
-  observeEvent(input$selectAllsignatures, {
-    req(values$beta_sig_data)
-    updateCheckboxGroupInput(session, "signatures",
-                             choices = names(values$beta_sig_data$signatures),
-                             selected = names(values$beta_sig_data$signatures))
-  })
-  
-  # Handle Deselect All button signatures 
-  observeEvent(input$deselectAllsignatures, {
-    req(values$beta_sig_data)
-    updateCheckboxGroupInput(session, "signatures",
-                             choices = names(values$beta_sig_data$signatures),
-                             selected = character(0))
-  })
-  
-  
-  
-  show_modal_spinner()
-  
-
-
-  
-  # Create dynamic missing value table
-  output$missingValTable <- renderDT({
-    req(values$data_list$test_data, 
-        input$proband,
-        values$beta_sig_data$signatures,
-        input$signatures)
-    
-    datatable(
-      count_missing_data(values$data_list$test_data, 
-                         input$proband,
-                         values$beta_sig_data$signatures,
-                         input$signatures)
-    )
-  })
-  
-  
-  
-  
-  
-  # Create dynamic predicted sex plot
-  output$chrSexPlot <- renderPlotly({
-    req(values$chr_sex_table, input$proband
-    )
-    
-      predict_chr_sex_plot(values$chr_sex_table, 
-                      input$proband)
-  })
-  
-  
-  # Create dynamic predicted age table
-  output$methAgeTable <- renderDT({
-    req(values$age_table, input$proband
-    )
-
-    datatable(values$age_table[values$age_table$Proband %in% input$proband, ]
-    )
-  })
-  
-  
-  
-  # Create dynamic prediction table
-  output$predictionTable <- renderDT({
-    req(values$results, input$proband, input$signatures)
-    
-    datatable(
-      values$results[values$results$SampleID %in% input$proband &
-                       values$results$SVM %in% gsub("_", " ",input$signatures), ]
-    )
-  })
-  
-  
-  
-  # Create prediction plot
-  output$predictionPlot <- renderPlotly({
-    req(values$results, input$proband, input$signatures)
-    
-    # Calculate plot width based on number of signatures
-    plot_width <- 100 + (length(input$signatures) * 100)
-    
-    # Create prediction plot with dynamic width
-    plot <- create_prediction_plot(values$results, input$proband, input$signatures, plot_width)
-    
-  })
-  
-  # Cell proportion plot 
-  output$cellpropPlot <- renderPlotly({
-    req(values$cell_props, 
-        values$background_data$cellprops,
-        input$proband)
-    
-    create_cell_deconv_plot(values$cell_props, 
-                            values$background_data$cellprops,
-                            input$proband)
-  })
-  
-  
-  # Create dimension reduction plots with pagination
   output$dimReductionPlots <- renderUI({
-    req(values$plot_data, input$proband, input$signatures, input$plotsPerPage)
-    
-    # Calculate which plots to show on current page
+    req(values$data, input$proband, input$signatures, input$plotsPerPage)
     start_idx <- (values$current_page - 1) * input$plotsPerPage + 1
     end_idx <- min(values$current_page * input$plotsPerPage, length(input$signatures))
     current_signatures <- input$signatures[start_idx:end_idx]
-    
-    plot_output_list <- lapply(current_signatures, function(s) {
-      plotname <- paste("plot", s, sep = "")
-      plotOutput(plotname, height = 1200)
-    })
-    
+    plot_output_list <- lapply(current_signatures, function(s) plotOutput(paste0("plot", s), height = 1200))
     do.call(tagList, plot_output_list)
   })
-  
-  # Render individual dimension reduction plots
   observe({
-    req(values$plot_data, input$proband, input$signatures, input$plotsPerPage)
-    
-    # Calculate which plots to show on current page
+    req(values$data, input$proband, input$signatures, input$plotsPerPage)
     start_idx <- (values$current_page - 1) * input$plotsPerPage + 1
     end_idx <- min(values$current_page * input$plotsPerPage, length(input$signatures))
     current_signatures <- input$signatures[start_idx:end_idx]
-    
-    
-    for(s in current_signatures) {
+    for (s in current_signatures) {
       local({
         s_local <- s
-        
-        output[[paste("plot", s_local, sep = "")]] <- renderPlot({
-          create_dimension_reduction_plots(values$plot_data[[s_local]],
-                                           values$plot_metadata[[s_local]],
-                                           input$proband,
-                                           s_local)
+        output[[paste0("plot", s_local)]] <- renderPlot({
+          create_dimension_reduction_plots(values$data$plot_data[[s_local]], values$data$plot_metadata[[s_local]], input$proband, s_local)
         })
       })
     }
   })
   
-  remove_modal_spinner() 
   output$downloadResults <- downloadHandler(
-    filename = function() {
-      paste0("MethaDory_results_", Sys.Date(), ".xlsx")
-    },
+    filename = function() paste0("MethaDory_results_", Sys.Date(), ".xlsx"),
     content = function(file) {
-      
-      export_table = values$results
-      
-      export_table = pivot_wider(export_table, id_cols = "SampleID",  
-                                 names_from = "SVM", 
-                                 values_from = c("pSVM_average", "pSVM_sd"))
-      
-      
-      names(export_table) = gsub("pSVM_", "pSVM", names(export_table))
-      names(export_table) = gsub("_", " ", names(export_table))
-      
-      cell_props_exports = values$cell_props[values$cell_props$Proband %in% input$proband,]
-      
-      cell_props_exports = pivot_wider(cell_props_exports,
-                                 id_cols = "Proband",  
-                                 names_from = "CellType", 
-                                 values_from = "CellProp")
-      
-      openxlsx::write.xlsx(list("MethaDory Predictions" = export_table, 
-                       "Cell deconvolutions" = cell_props_exports,
-                       "Predicted age" = values$age_table[values$age_table$Proband %in% input$proband,],
-                       "Predicted chr sex" = values$chr_sex_table[values$age_table$Proband %in% input$proband,]
-                        ), file, quote = F, row.names = F, sep = "\t")
-    }
-  )
+      export_table <- values$data$results
+      export_table <- pivot_wider(export_table, id_cols = "SampleID", names_from = "SVM", values_from = c("pSVM_average", "pSVM_sd"))
+      names(export_table) <- gsub("pSVM_", "pSVM", names(export_table))
+      names(export_table) <- gsub("_", " ", names(export_table))
+      cell_props_exports <- pivot_wider(values$data$cell_props[values$data$cell_props$Proband %in% input$proband,],
+                                        id_cols = "Proband", names_from = "CellType", values_from = "CellProp")
+      openxlsx::write.xlsx(list("MethaDory Predictions" = export_table,
+                                "Cell deconvolutions" = cell_props_exports,
+                                "Predicted age" = values$data$age_table[values$data$age_table$Proband %in% input$proband,],
+                                "Predicted chr sex" = values$data$chr_sex_table[values$data$age_table$Proband %in% input$proband,]),
+                           file, quote = FALSE, row.names = FALSE, sep = "\t")
+    })
+  
   output$downloadPlots <- downloadHandler(
-    filename = function() {
-      paste0("MethaDory_plots_", Sys.Date(), ".pdf")
-    },
+    filename = function() paste0("MethaDory_plots_", Sys.Date(), ".pdf"),
     content = function(file) {
       pdf(file, width = 20, height = 8)
-      plot_width <- min(1000, 100 + (length(input$signatures) * 100))
-      print(create_prediction_plot2(values$results, input$proband, input$signatures, plot_width))
-      
-      # Print dimension reduction plots for selected signatures
-      for(s in input$signatures) {
-        
-        s_local <- s
-        
-        
-        
-        print(create_dimension_reduction_plots(values$plot_data[[s_local]],
-                                               values$plot_metadata[[s_local]],
-                                               input$proband,
-                                               s_local))
-        
+      print(create_prediction_plot2(values$data$results, input$proband, input$signatures, 100 + (length(input$signatures) * 100)))
+      for (s in input$signatures) {
+        print(create_dimension_reduction_plots(values$data$plot_data[[s]], values$data$plot_metadata[[s]], input$proband, s))
       }
-      
       dev.off()
-      
     })
 }
-  
 
-
-
-# Run the app
 shinyApp(ui = ui, server = server, options = list(launch.browser = TRUE))

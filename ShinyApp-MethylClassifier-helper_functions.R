@@ -43,6 +43,7 @@ library(shinyFiles)
 library(tidyverse)
 library(umap)
 library(scales)
+library(ggrepel)
 
 
 
@@ -380,54 +381,32 @@ prepare_plot_metadata <- function(signatures, insilicocases_plot_beta, user_plot
 #' @return ggplot object of prediction plot
 create_prediction_plot <- function(results, proband, signatures, plot_width) {
   
-  plot_data = results[results$SampleID %in% proband & 
-                        results$SVM %in% gsub("_", " ",signatures),]
-  plot_data$pSVMmin = ifelse(plot_data$pSVM_average - plot_data$pSVM_sd < 0, 0, plot_data$pSVM_average - plot_data$pSVM_sd)
-  plot_data$pSVMmax = ifelse(plot_data$pSVM_average + plot_data$pSVM_sd > 1, 1, plot_data$pSVM_average + plot_data$pSVM_sd)
+  plot_data <- results[results$SampleID %in% proband & 
+                         results$SVM %in% gsub("_", " ", signatures), ]
   
-  p = ggplot(plot_data,
-         aes(SVM, pSVM_average, color = SampleID)) +
+  plot_data$pSVMmin <- pmax(0, plot_data$pSVM_average - plot_data$pSVM_sd)
+  plot_data$pSVMmax <- pmin(1, plot_data$pSVM_average + plot_data$pSVM_sd)
+  
+  p = ggplot(plot_data, aes(SVM, pSVM_average, color = SampleID)) +
     geom_hline(yintercept = c(0, 0.5, 1), color = "darkgrey") +
-    geom_pointrange(aes(ymin = pSVMmin,
-                        ymax = pSVMmax),
+    geom_pointrange(aes(ymin = pSVMmin, ymax = pSVMmax),
                     position = position_jitter(width = 0.20, height = 0)) +
+    scale_y_continuous(limits = c(0, 1)) +
     theme_minimal() +
     scale_x_discrete(labels = scales::label_wrap(20)) +
     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
           legend.position = "none") +
     ylab("SVM score") +
     xlab("")
-
-  p
+  
+  ggplotly(p) %>%
+    layout( yaxis = list(fixedrange = TRUE),
+            margin = list(b = 120))
+  
 }
 
 
 
-#' Create prediction plot for pdf
-#'
-#' @param results Prediction results
-#' @param proband Proband ID
-#' @return ggplot object of prediction plot
-create_prediction_plot2 <- function(results, proband, signatures, plot_width) {
-  
-  plot_data = results[results$SampleID %in% proband & 
-                        results$SVM %in% gsub("_", " ",signatures),]
-  plot_data$pSVMmin = ifelse(plot_data$pSVM_average - plot_data$pSVM_sd < 0, 0, plot_data$pSVM_average - plot_data$pSVM_sd)
-  plot_data$pSVMmax = ifelse(plot_data$pSVM_average + plot_data$pSVM_sd > 1, 1, plot_data$pSVM_average + plot_data$pSVM_sd)
-  
-  ggplot(plot_data,
-             aes(SVM, pSVM_average, color = SampleID)) +
-    geom_hline(yintercept = c(0, 0.5, 1), color = "darkgrey") +
-    geom_pointrange(aes(ymin = pSVMmin,
-                        ymax = pSVMmax),
-                    position = position_jitter(width = 0.20, height = 0)) +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
-          legend.position = "bottom") +
-    ylab("SVM score") +
-    xlab("Predictive Model")
-
-}
 
 
 #' Create color scheme for plots
@@ -721,7 +700,7 @@ create_dimension_reduction_plots <- function(data_beta, data_meta, proband, sign
 
 
 
-#' Create cell deconvolution plot
+#' Create cell deconvolution table
 #'
 #' @param cell_prop_input Input to calculate cell proportions, ie. beta values of sample(s) to test
 #' @return table for cell proportions
@@ -782,8 +761,6 @@ ggplot() +
 
 
 
-
-
 #' Predict chromosomal age
 #'
 #' @param samples_of_interest_beta Input to calculate cell proportions, ie. beta values of sample(s) to test
@@ -834,57 +811,66 @@ predict_chr_sex_plot <- function(chr_sex_table, probands) {
   
   boundary = max(x$X, abs(x$X), x$Y, abs(x$Y))
   
-  ggplot(x[x$Proband %in% probands,], aes(X, Y, color=Proband))+
-    geom_vline(xintercept = 0)+
-    geom_hline(yintercept = 0)+
-    annotate("text", label = "47, XXY", x = boundary + 5, y = boundary + 5, size = 6, colour = "darkred")+
-    annotate("text", label = "46 XX", x = boundary + 5, y = -(boundary + 5), size = 6, colour = "black")+
-    annotate("text", label = "45, X0", x = -(boundary + 5), y = -(boundary + 5), size = 6, colour = "darkred")+
-    annotate("text", label = "46, XY", x = -(boundary + 5), y = boundary + 5, size = 6, colour = "black")+
-    xlim(-boundary-7, boundary+7)+
-    ylim(-boundary-7, boundary+7)+
-    geom_point(size=6)+
-    theme_minimal()+
-    theme(legend.position = "none")+
+  ggplot(x[x$Proband %in% probands,], aes(X, Y, color = Proband, label = Proband)) +
+    geom_vline(xintercept = 0) +
+    geom_hline(yintercept = 0) +
+    annotate("text", label = expression(bold("47, XXY")), x = boundary + 5, y = boundary + 5, size = 8, colour = "darkred") +
+    annotate("text", label = expression(bold("46 XX")), x = boundary + 5, y = -(boundary + 5), size = 8, colour = "black") +
+    annotate("text", label = expression(bold("45, X0")), x = -(boundary + 5), y = -(boundary + 5), size = 8, colour = "darkred") +
+    annotate("text", label = expression(bold("46, XY")), x = -(boundary + 5), y = boundary + 5, size = 8, colour = "black") +
+    xlim(-boundary - 7, boundary + 7) +
+    ylim(-boundary - 7, boundary + 7) +
+    geom_point(position = position_jitter(width = 1, height = 1), size = 6) +
+    geom_text_repel(position = position_jitter(width = 1, height = 1), size = 7, max.overlaps = Inf) +
+    theme_minimal() +
+    theme(legend.position = "none") +
     ggtitle("Chromosomal sex prediction")
+  
   
 }
 
 
-
-
-#' Load and prepare test data
+#' Count Missing Data in Signature Predictors
 #'
-#' @param test_data_user_pre_imputation Loaded object
-#' @return Dataframe containing the number of missing values data and test data IDs
+#' Calculates the percentage of missing values for each proband across the full dataset and for each selected signature.
+#'
+#' @param test_data_user_pre_imputation Data frame of methylation beta values before imputation. Must contain an `IlmnID` column and one column per proband.
+#' @param probands Character vector of proband IDs (column names in the data).
+#' @param svms List of loaded SVM models, where each entry contains a `$ProbeID` vector of predictor CpGs.
+#' @param svms_of_interest Character vector specifying which SVM signatures to include.
+#'
+#' @return A data frame where rows represent "Input" (all CpGs) and each selected signature, and columns are the percentage of missing data per proband.
+#' 
 count_missing_data <- function(test_data_user_pre_imputation, probands, svms, svms_of_interest) {
+  # Validate inputs
+  stopifnot("IlmnID" %in% colnames(test_data_user_pre_imputation))
   
+  # Extract probe sets for the selected signatures
+  selected_signatures <- svms[svms_of_interest]
+  signature_probes <- lapply(selected_signatures, function(model) model$ProbeID)
   
-  # Extract predictors from each SVM model
-  signatures <- list()
-  for (signature in names(svms[names(svms) %in% svms_of_interest])) {
-    signatures[[signature]] <-svms[[signature]]$ProbeID
-  }
+  # Subset test data to probands and CpG IDs
+  data_subset <- test_data_user_pre_imputation[, c("IlmnID", probands)]
+  rownames(data_subset) <- data_subset$IlmnID
+  data_subset$IlmnID <- NULL
   
-
-  # Subset data to relevant columns
-  tmp_mis_holder <- test_data_user_pre_imputation[, c("IlmnID", probands)]
-  rownames(tmp_mis_holder) = tmp_mis_holder$IlmnID
+  # Initialize result with row names
+  result <- data.frame(Row = c("Input", names(signature_probes)), stringsAsFactors = FALSE)
   
+  # Compute % missing for each proband
+  missing_stats <- lapply(data_subset, function(proband_values) {
+    overall_missing <- 100 * mean(is.na(proband_values))
+    signature_missing <- sapply(signature_probes, function(probes) {
+      valid_probes <- probes[probes %in% rownames(data_subset)]
+      if (length(valid_probes) == 0) return(NA)
+      100 * mean(is.na(proband_values[valid_probes]))
+    })
+    c(overall_missing, signature_missing)
+  })
   
-  result <- data.frame("Percent of missing CpGs in" = c("Input", names(signatures)), stringsAsFactors = FALSE)
-  
-  for (col in colnames(tmp_mis_holder)) {
-    overall_missing <- 100 * sum(is.na(tmp_mis_holder[[col]]))/length(tmp_mis_holder[[col]])
-    
-    set_missing <- 100 * sapply(signatures, function(set) sum(is.na(tmp_mis_holder[set, col]) /
-                                                                length(tmp_mis_holder[set, col])))
-    
-    result[[col]] <- c(overall_missing, set_missing)
-  }
-  
-  result$IlmnID = NULL
+  # Combine results
+  result <- cbind(result, do.call(cbind, missing_stats))
+  colnames(result)[-1] <- names(data_subset)
   
   return(result)
-  
 }
