@@ -184,14 +184,14 @@ prepare_inference_data <- function(test_data, svm) {
 #' @return Data frame of prediction results
 make_predictions <- function(test_for_inference, svm, test_data_ids) {
   results <- list()
-  
+  print("Processing samples for DNAm testing...")
   for (i in names(test_for_inference)) {
     for (j in names(svm)) {
       if (grepl(i, j)) {
         results[[paste(i, j)]] <- predict(svm[[j]],
                                           newdata = t(test_for_inference[[i]]),
                                           type = "prob")
-        print(paste("Processing", i)) 
+        #print(paste("Processing", i)) 
               
         results[[paste(i, j)]]$SampleID <- names(test_for_inference[[i]])
       }
@@ -252,12 +252,12 @@ load_beta_signatures <- function() {
 load_real_cases <- function(signatures) {
   real_cases_beta <- readRDS("data/affectedindividuals/affectedindividuals_methadory.beta.rds")
   real_cases_meta <- readRDS("data/affectedindividuals/affectedindividuals_methadory.meta.rds")
-  real_cases_meta <- real_cases_meta[, c("geo_accession", "RealLabel")]
+  #real_cases_meta <- real_cases_meta[, c("geo_accession", "RealLabel", "Platform")]
   
   real_cases_meta <- real_cases_meta[real_cases_meta$geo_accession %in% colnames(real_cases_beta),]
   real_cases_beta <- real_cases_beta[, colnames(real_cases_beta) %in% real_cases_meta$geo_accession]
   real_cases_beta$IlmnID <- rownames(real_cases_beta)
-  names(real_cases_meta) <- c('IDs', "Status")
+  names(real_cases_meta) <- c('IDs', "Status", "Platform")
   real_cases_meta$Source <- "literature"
   
   real_cases_beta <- lapply(signatures, function(x) {
@@ -349,19 +349,30 @@ prepare_plot_data <- function(signatures, insilico_beta, test_data_user_imputed,
 #' @param user_plot_beta User plot beta values
 #' @param real_cases_meta Real cases metadata
 #' @return List of prepared metadata for plots
-prepare_plot_metadata <- function(signatures, insilicocases_plot_beta, user_plot_beta, real_cases_meta) {
+prepare_plot_metadata <- function(signatures, insilicocases_plot_beta, user_plot_beta, real_cases_meta, insl) {
   data_for_plots_meta <- lapply(names(signatures), function(s) {
     mt_ids_iscases <- setdiff(colnames(insilicocases_plot_beta[[s]]), "IlmnID")
     mt_ids_usertests <- setdiff(colnames(user_plot_beta), "IlmnID")
-
+    
     lsd <- data.frame(
       'IDs' = c(mt_ids_iscases, mt_ids_usertests),
       'Status' = rep("in_silico_case", length(c(mt_ids_iscases, mt_ids_usertests))),
       'Source' = rep("literature", length(c(mt_ids_iscases, mt_ids_usertests)))
     )
-
+    
+    # lsd$mapper = str_split(lsd$IDs, "_", simplify=T)[,1]
+    # 
+    # lsd$mapper = ifelse(!is.na(lsd$mapper), lsd$mapper, lsd$IDs)
+    # 
+    # insl$mapper = insl$IDs
+    
+    lsd = merge(lsd, insl, by="IDs", all.x=T)
+    
+    lsd$mapper = NULL
+      
+    # lsd$Platform = "proband"
     lsd <- lsd[!lsd$IDs %in% real_cases_meta$IDs, ]
-    lsd <- rbind(lsd, real_cases_meta)
+    lsd <- bind_rows(lsd, real_cases_meta)
     lsd$Status <- ifelse(lsd$IDs %in% mt_ids_usertests, "proband", lsd$Status)
     lsd$Source <- ifelse(lsd$IDs %in% mt_ids_usertests, "user_sample", lsd$Source)
 
@@ -420,7 +431,11 @@ create_annotation_colors <- function(test_id) {
                '#089099',
                "#DC3977"), 
     Source = c("#A599CA",
-               "#DC3977")
+               "#DC3977"),
+    Platform = c("#089099",
+                 "#045275",
+                 "#7C1D6F",
+                 "#DC3977")
   )
   
   names(ann_colors$Status) <- c(ifelse(length(test_id) == 0, 'NA', test_id),
@@ -430,6 +445,11 @@ create_annotation_colors <- function(test_id) {
   
   names(ann_colors$Source) <- c("literature",
                                 'user_sample')
+  
+  names(ann_colors$Platform) <- c('EPIC',
+                                  'EPICv2',
+                                  '450K',
+                                  'proband')
   
   return(ann_colors)
 }
@@ -615,7 +635,7 @@ create_heatmap <- function(data_beta, data_meta) {
   
   # Create source/status annotation
   ta <- HeatmapAnnotation(
-    df = data_meta[, c("Source", "Status")],
+    df = data_meta[, c("Source", "Platform", "Status")],
     col = ann_colors
   )
   
@@ -655,10 +675,26 @@ create_heatmap <- function(data_beta, data_meta) {
 create_dimension_reduction_plots <- function(data_beta, data_meta, proband, signature_name) {
   goi <- str_split(signature_name, "_", simplify = TRUE)[,1]
 
-  data_meta <- data_meta[data_meta$Status == goi |
-                         data_meta$Status %in% c("in_silico_case", "control") |
-                         data_meta$IDs %in% proband,]
-
+  # Subset cases
+  subset_main <- data_meta[data_meta$Status == goi |
+                             data_meta$Status == "in_silico_case" |
+                             data_meta$IDs %in% proband,]
+  
+  # Select 25 controls 
+  subset_controls <- data_meta[data_meta$Status == "control", ]
+  
+  # Consider platforms
+  subset_controls_v1 <- subset_controls[subset_controls$Platform == unique(subset_controls$Platform)[1], ]
+  set.seed(42);subset_controls_v1 <- subset_controls_v1[sample(nrow(subset_controls_v1), min(12, nrow(subset_controls_v1))), ]
+  
+  subset_controls_v2 <- subset_controls[subset_controls$Platform == unique(subset_controls$Platform)[2], ]
+  set.seed(42);subset_controls_v2 <- subset_controls_v2[sample(nrow(subset_controls_v2), min(12, nrow(subset_controls_v2))), ]
+  # print(unique(subset_controls$Platform))
+  subset_controls = rbind(subset_controls_v1, subset_controls_v2)
+  
+  # Combine metadata
+  data_meta <- rbind(subset_main, subset_controls)
+  
   data_beta <- data_beta[, colnames(data_beta) %in% rownames(data_meta)]
   data_beta <- as.data.frame(t(data_beta))
   data_beta <- data_beta[!duplicated(data_beta), ]

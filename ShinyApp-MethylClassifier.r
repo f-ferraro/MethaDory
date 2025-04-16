@@ -96,9 +96,12 @@ server <- function(input, output, session) {
     inference_data <- prepare_inference_data(imputed_data, background_data$svm)
     results <- make_predictions(inference_data, background_data$svm, data_list$test_data_ids)
     real_cases_data <- load_real_cases(beta_sig_data$signatures)
-    
+    insilico_meta <- readRDS("data/syntheticcases/samples_for_insilico.meta.rds")
+    insilico_meta = insilico_meta[,c("geo_accession", "Platform")]
+    names(insilico_meta) = c("IDs", "Platform")
+      
     plot_data <- prepare_plot_data(beta_sig_data$signatures, beta_sig_data$insilico_beta, imputed_data, real_cases_data$real_cases_beta)
-    plot_metadata <- prepare_plot_metadata(beta_sig_data$signatures, plot_data, imputed_data, real_cases_data$real_cases_meta)
+    plot_metadata <- prepare_plot_metadata(beta_sig_data$signatures, plot_data, imputed_data, real_cases_data$real_cases_meta, insilico_meta)
     
     cell_props <- create_cell_deconv_table(data_list$test_data)
     chr_sex_table <- predict_chr_sex_table(data_list$test_data)
