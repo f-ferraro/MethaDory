@@ -188,12 +188,16 @@ make_predictions <- function(test_for_inference, svm, test_data_ids) {
   for (i in names(test_for_inference)) {
     for (j in names(svm)) {
       if (grepl(i, j)) {
+        tryCatch({
         results[[paste(i, j)]] <- predict(svm[[j]],
                                           newdata = t(test_for_inference[[i]]),
                                           type = "prob")
         #print(paste("Processing", i)) 
               
         results[[paste(i, j)]]$SampleID <- names(test_for_inference[[i]])
+        }, error=function(err){
+          print(paste("Failure processing", err)) 
+        })
       }
     }
   }
