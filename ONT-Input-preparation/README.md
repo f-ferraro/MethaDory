@@ -22,7 +22,7 @@ Usage: MethaDory-methylation.sh --bam_path FILE --sampleID ID --ref_genome DIR -
  
 ```
 
-This will produce two folders: `modkitoutput` and `pseudopedic`. The latter is the input for the next step.
+This will produce two folders: `modkitoutput` and `pseudoepic`. The latter is the input for the next step.
 
 To reformat and merge multiple files together in a single MethaDory input file, you can run R script:
 
@@ -32,7 +32,7 @@ pixi run Rscript MethaDory_ONT_Input_Preparation.R
 
 Usage: MethaDory_ONT_Input_Preparation.R <pseudoepic_directory> <output_file>
   Arguments:
-       pseudoepic_directory   Path to the pseudoepic directory output of MethaDory-modkit.sh
+       pseudoepic_directory   Path to the `pseudoepic` directory output of MethaDory-modkit.sh
        output_file            Path to the output file
 ```
 
