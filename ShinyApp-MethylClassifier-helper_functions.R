@@ -726,7 +726,7 @@ create_heatmap <- function(data_beta, data_meta) {
                      ))
 }
 
-#' Create dimension reduction plots
+#' Create dimension reduction plots with closest samples selection
 #'
 #' @param data_beta Beta values
 #' @param data_meta Metadata
@@ -735,26 +735,56 @@ create_heatmap <- function(data_beta, data_meta) {
 #' @return Combined plot object
 create_dimension_reduction_plots <- function(data_beta, data_meta, proband, signature_name) {
   goi <- str_split(signature_name, "_", simplify = TRUE)[,1]
-
+  
   # Subset cases
   subset_main <- data_meta[data_meta$Status == goi |
                              data_meta$Status == "in_silico_case" |
                              data_meta$IDs %in% proband,]
   
-  # Select 25 controls 
+  # Get all control samples
   subset_controls <- data_meta[data_meta$Status == "control", ]
   
-  # Consider platforms
-  subset_controls_v1 <- subset_controls[subset_controls$Platform == unique(subset_controls$Platform)[1], ]
-  set.seed(42);subset_controls_v1 <- subset_controls_v1[sample(nrow(subset_controls_v1), min(12, nrow(subset_controls_v1))), ]
+  # Get proband data for distance calculation
+  proband_data <- data_beta[, colnames(data_beta) %in% proband, drop = FALSE]
   
-  subset_controls_v2 <- subset_controls[subset_controls$Platform == unique(subset_controls$Platform)[2], ]
-  set.seed(42);subset_controls_v2 <- subset_controls_v2[sample(nrow(subset_controls_v2), min(12, nrow(subset_controls_v2))), ]
-  # print(unique(subset_controls$Platform))
-  subset_controls = rbind(subset_controls_v1, subset_controls_v2)
+  # If multiple probands, use the mean methylation profile
+  if (length(proband) > 1) {
+    proband_profile <- rowMeans(proband_data, na.rm = TRUE)
+  } else {
+    proband_profile <- proband_data[, 1]
+  }
   
+  # select closest samples by platform
+  select_closest_samples <- function(control_subset, n_samples = 12) {
+    if (nrow(control_subset) == 0) {
+      return(control_subset)
+    }
+    
+    # Get control data for distance calculation
+    control_ids <- control_subset$IDs
+    control_data <- data_beta[, colnames(data_beta) %in% control_ids, drop = FALSE]
+    
+    # Calculate euclidean distances to proband(s)
+    distances <- apply(control_data, 2, function(x) {
+      sqrt(sum((proband_profile - x)^2, na.rm = TRUE))
+    })
+    
+    # Select the closest samples
+    n_to_select <- min(n_samples, length(distances))
+    closest_indices <- order(distances)[1:n_to_select]
+    closest_ids <- names(distances)[closest_indices]
+    
+    # Return the subset of metadata for closest samples
+    return(control_subset[control_subset$IDs %in% closest_ids, ])
+  }
+  
+  # Select closest controls by platform
+  unique_platforms <- unique(subset_controls$Platform)
+
+  selected_controls <- select_closest_samples(subset_controls, n_samples = 25)
+
   # Combine metadata
-  data_meta <- rbind(subset_main, subset_controls)
+  data_meta <- rbind(subset_main, selected_controls)
   
   data_beta <- data_beta[, colnames(data_beta) %in% rownames(data_meta)]
   data_beta <- as.data.frame(t(data_beta))
@@ -762,42 +792,39 @@ create_dimension_reduction_plots <- function(data_beta, data_meta, proband, sign
   data_beta <- as.data.frame(t(data_beta))
   data_meta <- data_meta[rownames(data_meta) %in% colnames(data_beta),]
   data_beta <- data_beta[, match(rownames(data_meta), colnames(data_beta))]
+  
   # PCA plot
   data_beta = na.omit(data_beta)
   
   p <- pca(data_beta, data_meta)
   pca_plot <- create_pca_plot(p)
-
+  
   # t-SNE plot
   tsne_plot <- create_tsne_plot(data_beta, data_meta)
-
+  
   # UMAP plot
   umap_plot <- create_umap_plot(data_beta, data_meta)
   
   # pacmap plot
   pacmap_plot <- create_pacmap_plot(data_beta, data_meta)
   
-  
   # Heatmap
   heatmap_plot <- create_heatmap(data_beta, data_meta)
-
+  
   # Combine plots
   design <- "AABBCCDD
              AABBCCDD
              EEEEEEEE
              EEEEEEEE
              EEEEEEEE"
-
+  
   combined_plot <- pca_plot + tsne_plot + umap_plot + pacmap_plot + heatmap_plot +
     plot_layout(design = design)+
     plot_annotation(title = signature_name,
-                    subtitle = paste("Proband:", proband))
-
+                    subtitle = paste("Proband:", paste(proband, collapse = ", ")))
+  
   return(combined_plot)
 }
-
-
-
 
 #' Create cell deconvolution table
 #'
