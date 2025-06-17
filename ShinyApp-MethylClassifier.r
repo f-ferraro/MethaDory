@@ -105,7 +105,7 @@ server <- function(input, output, session) {
     
     cell_props <- create_cell_deconv_table(data_list$test_data)
     chr_sex_table <- predict_chr_sex_table(data_list$test_data)
-    age_table <- predict_age(data_list$test_data)
+    #age_table <- predict_age(data_list$test_data)
     
     values$data <- list(data_list=data_list, background_data=background_data, imputed_data=imputed_data,
                         beta_sig_data=beta_sig_data, inference_data=inference_data, results=results,

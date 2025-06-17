@@ -46,6 +46,9 @@ library(scales)
 library(ggrepel)
 library(reticulate)
 
+library(parallel)
+library(doParallel)
+library(foreach)
 
 #' Load and prepare test data
 #'
@@ -181,27 +184,47 @@ perform_imputation <- function(test_data, test_data_ids) {
                                   type = "user",
                                   annotation = manifest,
                                   BPPARAM = SnowParam(exportglobals = FALSE,
-                                                      workers = 1))
+                                                      workers = 8))
     
     test_results[[sample_id]] <- as.data.frame(t(beta_SE_imputed))
-    test_results[[sample_id]][, which(names(test_results[[sample_id]]) != sample_id)] = NULL
+    test_results[[sample_id]][, which(names(test_results[[sample_id]]) != sample_id)] <- NULL
     
-    test_results[[sample_id]]$IlmnID = rownames(test_results[[sample_id]])
-
-
+    test_results[[sample_id]]$IlmnID <- rownames(test_results[[sample_id]])
   }
   
-  test_data_imputed = test_results %>%
-    purrr::reduce(full_join, by = 'IlmnID')
   
-  df_output = test_data_imputed %>%
-    relocate("IlmnID")
+  # Get cpgs from first outpur=t
+  ilmn_ids <- test_results[[1]]$IlmnID
   
-  rownames(df_output) = df_output$IlmnID
+  # Make dataframe
+  n_rows <- length(ilmn_ids)
+  n_cols <- length(test_data_ids) + 1  # +1 for IlmnID column
+
+  df_output <- data.frame(
+    IlmnID = ilmn_ids,
+    matrix(NA, nrow = n_rows, ncol = length(test_data_ids))
+  )
+
+  colnames(df_output) <- c("IlmnID", test_data_ids)
+  
+  # Add results
+  for (i in seq_along(test_results)) {
+    sample_id <- names(test_results)[i]
+    sample_data <- test_results[[i]]
+    
+    # Sort by CpG
+    sample_data_ordered <- sample_data[match(ilmn_ids, sample_data$IlmnID), ]
+    
+    # Add sample
+    df_output[[sample_id]] <- sample_data_ordered[[sample_id]]
+  }
+  
+  # Set rownames
+  rownames(df_output) <- df_output$IlmnID
   
   return(df_output)
-  
 }
+
 
 #' Prepare data for inference
 #'
@@ -223,27 +246,72 @@ prepare_inference_data <- function(test_data, svm) {
 #' @param test_data_ids IDs of test samples
 #' @return Data frame of prediction results
 make_predictions <- function(test_for_inference, svm, test_data_ids) {
-  results <- list()
+  
+  # Set up parallel processing
+  n_cores <- max(1, detectCores() - 2)
+  cl <- makeCluster(n_cores)
+  registerDoParallel(cl)
+  
+  # Create all combinations that need processing
+  combinations <- expand.grid(
+    test_name = names(test_for_inference),
+    svm_name = names(svm),
+    stringsAsFactors = FALSE
+  )
+  
+  # Filter to only matching combinations
+  valid_combinations <- combinations[mapply(function(test_name, svm_name) {
+    grepl(test_name, svm_name)
+  }, combinations$test_name, combinations$svm_name), ]
+  
   print("Processing samples for DNAm testing...")
-  for (i in names(test_for_inference)) {
-    for (j in names(svm)) {
-      if (grepl(i, j)) {
-        tryCatch({
-        results[[paste(i, j)]] <- predict(svm[[j]],
-                                          newdata = t(test_for_inference[[i]]),
-                                          type = "prob")
-        # For debugging
-        #print(paste("Processing", i)) 
-              
-        results[[paste(i, j)]]$SampleID <- names(test_for_inference[[i]])
-        }, error=function(err){
-          print(paste("Failure processing", err)) 
-        })
-      }
-    }
-  }
-
-  process_results(results, test_data_ids)
+  print(paste0("Processing ", nrow(valid_combinations) / 3, " (",
+              nrow(valid_combinations)
+              "), DNAm signatures in parallel using", n_cores, "cores..."))
+  
+  # Export necessary objects to cluster
+  clusterExport(cl, c("test_for_inference", "svm"), envir = environment())
+  
+  tryCatch({
+    # Perform parallel predictions
+    results_list <- foreach(idx = 1:nrow(valid_combinations),
+                            .combine = 'c',
+                            .multicombine = TRUE,
+                            .errorhandling = 'pass') %dopar% {
+                              
+                              i <- valid_combinations$test_name[idx]
+                              j <- valid_combinations$svm_name[idx]
+                              
+                              tryCatch({
+                                # Make prediction
+                                pred_result <- predict(svm[[j]],
+                                                       newdata = t(test_for_inference[[i]]),
+                                                       type = "prob")
+                                
+                                # Add SampleID
+                                pred_result$SampleID <- names(test_for_inference[[i]])
+                                
+                                # Return as named list element
+                                result <- list(pred_result)
+                                names(result) <- paste(i, j)
+                                return(result)
+                                
+                              }, error = function(err) {
+                                print(paste("Failure processing", i, "with", j, ":", err$message))
+                                return(NULL)
+                              })
+                            }
+    
+    # Flatten the results list (remove NULLs from errors)
+    results <- results_list[!sapply(results_list, is.null)]
+    
+    # Process and return results
+    return(process_results(results, test_data_ids))
+    
+  }, finally = {
+    # Always stop the cluster
+    stopCluster(cl)
+  })
 }
 
 #' Process prediction results
@@ -255,7 +323,6 @@ process_results <- function(results, test_data_ids) {
   results <- lapply(results, as.data.frame)
   results <- bind_rows(results, .id = "Model")
   
-  print(head(results))
   results <- pivot_longer(results,
                           -c("SampleID", "Model"),
                           names_to = "Signature",
@@ -674,7 +741,7 @@ create_pacmap_plot <- function(data_beta, data_meta) {
   
   pacmap <- import("pacmap")
   
-  embedding <- pacmap$PaCMAP(n_neighbors=15)$fit_transform(as.matrix(t(data_beta)))
+  embedding <- pacmap$PaCMAP()$fit_transform(as.matrix(t(data_beta)))
   
   # Create data frame for plotting
   pacmap_df <- data.frame(
@@ -758,6 +825,7 @@ create_heatmap <- function(data_beta, data_meta) {
     show_column_names = FALSE,
     show_row_names = F,
     name = " ",
+    column_km = 2,
     heatmap_legend_param = list(direction = "horizontal")
   ) 
   # Convert to grob for compatibility with ggplot2
@@ -852,11 +920,18 @@ create_dimension_reduction_plots <- function(data_beta, data_meta, proband, sign
   heatmap_plot <- create_heatmap(data_beta, data_meta)
   
   # Combine plots
-  design <- "AABBCCDD
-             AABBCCDD
-             EEEEEEEE
-             EEEEEEEE
-             EEEEEEEE"
+  # design <- "AABBCCDD
+  #            AABBCCDD
+  #            EEEEEEEE
+  #            EEEEEEEE
+  #            EEEEEEEE"
+  
+  
+  # Combine plots
+  design <- "AAABBB
+             AAABBB
+             EEEEEE
+             EEEEEE"
   
   combined_plot <- pca_plot + #tsne_plot + umap_plot + 
     pacmap_plot + heatmap_plot +
