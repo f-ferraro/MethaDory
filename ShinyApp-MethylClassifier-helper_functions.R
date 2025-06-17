@@ -56,6 +56,9 @@ load_test_data <- function(file_path) {
   test_data_user <- read.delim(file_path, header = TRUE)
   
   test_data <- test_data_user %>% relocate(IlmnID)
+  # Ensure no duplicated probes
+  dups = duplicated(test_data$IlmnID)
+  test_data <- test_data[!test_data$IlmnID %in% dups, ]
   
   return(list(
     test_data = test_data,
@@ -146,23 +149,47 @@ prepare_imputation_data <- function(test_data, imputation_background, svm) {
 #' @param test_data Prepared test data
 #' @param test_sample_ids IDs of test samples
 #' @return Imputed data frame
-perform_imputation <- function(test_data, test_sample_ids) {
+perform_imputation <- function(test_data, test_data_ids) {
   manifest <- readRDS("data/support_files/manifest.qc_filtered.rds")
   manifest$MAPINFO <- NULL
   names(manifest) <- c('cpg', 'chr')
   
-  beta_SE_imputed <- methyLImp2(input = t(test_data),
-                                type = "user",
-                                annotation = manifest,
-                                BPPARAM = SnowParam(exportglobals = FALSE,
-                                                    workers = 1))
-  df <- as.data.frame(t(beta_SE_imputed))
-  df$IlmnID <- rownames(df)
+  # Get all samples
+  all_sample_ids <- colnames(test_data)
   
-  df <- df[, names(df) %in% c("IlmnID", test_sample_ids)]
- 
-  return(df)
+  # Separate test samples from imputation
+  background_ids <- setdiff(all_sample_ids, test_data_ids)
+  
+  # Initialize list to store results for test samples
+  test_results <- list()
+  
+  # Perform imputation for each test sample with background samples only
+  for (sample_id in test_data_ids) {
+
+        print(paste("Imputing missing values for:", sample_id))
+    
+    sample_data <- test_data[, c(sample_id, background_ids)]
+    
+    beta_SE_imputed <- methyLImp2(input = t(sample_data),
+                                  type = "user",
+                                  annotation = manifest,
+                                  BPPARAM = SnowParam(exportglobals = FALSE,
+                                                      workers = 1))
+    
+    test_results[[sample_id]] <- as.data.frame(t(beta_SE_imputed))
+    test_results[[sample_id]][, which(names(test_results[[sample_id]]) != sample_id)] = NULL
+    test_results[[sample_id]]$IlmnID = rownames(test_results[[sample_id]])
+  }
+  
+  test_data_imputed = test_results %>%
+    purrr::reduce(full_join, by = 'IlmnID')
+  
+  return(test_data_imputed %>%
+           relocate("IlmnID"))
+  
 }
+
+
 
 #' Prepare data for inference
 #'

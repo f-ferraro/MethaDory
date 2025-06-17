@@ -4,7 +4,7 @@ library(shinyFiles)
 library(DT)
 library(plotly)
 
-options(shiny.maxRequestSize = 300 * 1024^2)
+options(shiny.maxRequestSize = 900 * 1024^2)
 
 source("ShinyApp-MethylClassifier-helper_functions.R")
 
