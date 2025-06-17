@@ -47,7 +47,6 @@ library(ggrepel)
 library(reticulate)
 
 
-
 #' Load and prepare test data
 #'
 #' @param file_path Path to the test data file
@@ -58,6 +57,7 @@ load_test_data <- function(file_path) {
   test_data <- test_data_user %>% relocate(IlmnID)
   # Ensure no duplicated probes
   dups = duplicated(test_data$IlmnID)
+  print(table(dups))
   test_data <- test_data[!test_data$IlmnID %in% dups, ]
   
   return(list(
@@ -65,6 +65,7 @@ load_test_data <- function(file_path) {
     test_data_ids = setdiff(names(test_data), "IlmnID")
   ))
 }
+
 
 
 
@@ -130,6 +131,12 @@ prepare_imputation_data <- function(test_data, imputation_background, svm) {
   test_data <- test_data[test_data$IlmnID %in% unlist(merged_signatures),]
   imputation_background <- imputation_background[imputation_background$IlmnID %in% unlist(merged_signatures),]
   
+  print("Size of the imputation dataset")
+  print(dim(imputation_background))
+
+  print("Size of the user dataset")
+  print(dim(test_data))
+  
   test_data <- merge(test_data,
                      imputation_background,
                      by = "IlmnID",
@@ -165,8 +172,8 @@ perform_imputation <- function(test_data, test_data_ids) {
   
   # Perform imputation for each test sample with background samples only
   for (sample_id in test_data_ids) {
-
-        print(paste("Imputing missing values for:", sample_id))
+    
+    print(paste("Imputing missing values for:", sample_id))
     
     sample_data <- test_data[, c(sample_id, background_ids)]
     
@@ -178,18 +185,23 @@ perform_imputation <- function(test_data, test_data_ids) {
     
     test_results[[sample_id]] <- as.data.frame(t(beta_SE_imputed))
     test_results[[sample_id]][, which(names(test_results[[sample_id]]) != sample_id)] = NULL
+    
     test_results[[sample_id]]$IlmnID = rownames(test_results[[sample_id]])
+
+
   }
   
   test_data_imputed = test_results %>%
     purrr::reduce(full_join, by = 'IlmnID')
   
-  return(test_data_imputed %>%
-           relocate("IlmnID"))
+  df_output = test_data_imputed %>%
+    relocate("IlmnID")
+  
+  rownames(df_output) = df_output$IlmnID
+  
+  return(df_output)
   
 }
-
-
 
 #' Prepare data for inference
 #'
@@ -243,6 +255,7 @@ process_results <- function(results, test_data_ids) {
   results <- lapply(results, as.data.frame)
   results <- bind_rows(results, .id = "Model")
   
+  print(head(results))
   results <- pivot_longer(results,
                           -c("SampleID", "Model"),
                           names_to = "Signature",
@@ -827,10 +840,10 @@ create_dimension_reduction_plots <- function(data_beta, data_meta, proband, sign
   pca_plot <- create_pca_plot(p)
   
   # t-SNE plot
-  tsne_plot <- create_tsne_plot(data_beta, data_meta)
+  # tsne_plot <- create_tsne_plot(data_beta, data_meta)
   
   # UMAP plot
-  umap_plot <- create_umap_plot(data_beta, data_meta)
+  # umap_plot <- create_umap_plot(data_beta, data_meta)
   
   # pacmap plot
   pacmap_plot <- create_pacmap_plot(data_beta, data_meta)
@@ -845,7 +858,8 @@ create_dimension_reduction_plots <- function(data_beta, data_meta, proband, sign
              EEEEEEEE
              EEEEEEEE"
   
-  combined_plot <- pca_plot + tsne_plot + umap_plot + pacmap_plot + heatmap_plot +
+  combined_plot <- pca_plot + #tsne_plot + umap_plot + 
+    pacmap_plot + heatmap_plot +
     plot_layout(design = design)+
     plot_annotation(title = signature_name,
                     subtitle = paste("Proband:", paste(proband, collapse = ", ")))
@@ -924,7 +938,7 @@ predict_age <- function(test_beta) {
   rownames(test_beta) = test_beta$IlmnID
   test_beta$IlmnID = NULL
 
-  ages = agep(test_beta, method='horvath') 
+  ages = agep(as.matrix(test_beta), method='horvath') 
   
   ages = tibble::rownames_to_column(ages, "Proband")
   
