@@ -1,4 +1,6 @@
 #!/usr/bin/env Rscript
+library(tidyverse)
+
 suppressWarnings(suppressMessages(library(tidyverse)))
 
 # Read command-line arguments
