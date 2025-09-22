@@ -51,12 +51,12 @@ modkit pileup "$bam_path" \
   --ref "${ref_genome}" \
   --filter-threshold 0.5 \
   "modkitoutput/${sampleID}.modkit.unstranded.combined.bed" \
-  --include-bed "ilmn.epic.v2.manifest.annot.1pd.bed"
+  --include-bed "ilmn.epic.s.manifest.annot.1pd.bed"
 
 # Intersect with EPIC manifest and reformat
 bedtools intersect \
   -a "modkitoutput/${sampleID}.modkit.unstranded.combined.bed" \
-  -b "ilmn.epic.v2.manifest.annot.1pd.bed" \
+  -b "ilmn.epic.s.manifest.annot.1pd.bed" \
   -wb -wa | \
   awk -v OFS="\t" '{print $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$22}' \
   > "pseudopedic/${sampleID}.pseudoepic.cpgID.bed"
