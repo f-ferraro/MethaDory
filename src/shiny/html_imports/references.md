@@ -10,7 +10,7 @@
 - Teschendorff, A. E., Breeze, C. E., Zheng, S. C., & Beck, S. (2017). [A comparison of reference-based algorithms for correcting cell-type heterogeneity in Epigenome-Wide Association Studies](https://doi.org/10.1186/s12859-017-1511-5). BMC bioinformatics, 18(1), 105.  
 
 
-*Chromosomal sex and age prediction* (for age we used the "skinblood" age model)
+*Chromosomal sex and age prediction*
 
 - Pidsley, R., Y Wong, C. C., Volta, M., Lunnon, K., Mill, J., & Schalkwyk, L. C. (2013). [A data-driven approach to preprocessing Illumina 450K methylation array data](https://doi.org/10.1186/1471-2164-14-293). BMC genomics, 14, 293. 
 

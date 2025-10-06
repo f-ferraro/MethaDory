@@ -123,18 +123,18 @@ ui <- dashboardPage(
              tabBox(
                id = "tabset1", height = "1000px", width =  "1200px",
                tabPanel("Welcome", includeMarkdown("html_imports/help.md")),
-               
+
                tabPanel("Prediction results plot",
                         div(
                           numericInput("plotThreshold", "Minimum SVM Score Threshold:",
-                                       value = 0.0, min = 0, max = 1, step = 0.05,
-                                       width = "300px"),
+                                     value = 0.0, min = 0, max = 1, step = 0.05,
+                                     width = "300px"),
                           div(style = 'overflow-x: auto; white-space: nowrap;',
                               plotlyOutput("predictionPlot", height = "800px")
                           )
                         )
                ),
-               
+
                tabPanel("SVM prediction table",
                         numericInput("minPSVM", "Minimum pSVM_average:", value = 0.25, min = 0, max = 1, step = 0.01),
                         DTOutput("predictionTable")),
