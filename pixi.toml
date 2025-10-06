@@ -18,8 +18,8 @@ MethaDory_html = { cmd = "cd src/cli && Rscript generate_methadory_html_report.R
 MethaDory_ont_extract = { cmd = "cd ONT-Input-preparation &&  bash MethaDory-extract-methylation.sh" }
 MethaDory_ont_input = { cmd = "cd src/cli && Rscript ont_input_prep.R" }
 
-[tasks.MethaDory_ont_input_modkit]
-depends-on = [{ task = "MethaDory_ont_input", environment = "modkit" }]
+[tasks.MethaDory_ont_extract_modkit]
+depends-on = [{ task = "MethaDory_ont_extract", environment = "modkit" }]
 
 [dependencies]
 bioconductor-genomeinfodb = ">=1.42.0,<2"

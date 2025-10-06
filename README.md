@@ -13,7 +13,7 @@ If you use MethaDory please cite our work and consider starring this repository 
 
 ## Installation
 
-`MethaDory` is distributed with Pixi, which can be installed the instructions described [here](https://pixi.sh/latest/).
+`MethaDory` is distributed with Pixi (v ≥ 0.55.0), which can be installed the instructions described [here](https://pixi.sh/latest/).
 
 When pixi is available on your system, clone the `MethaDory` git page:
 
