@@ -1,25 +1,22 @@
 [workspace]
 authors = ["fferraro"]
-channels = ["dnachun", "conda-forge", "bioconda", "r", "nanopore"]
+channels = ["dnachun", "conda-forge", "bioconda", "r"]
 name = "MethaDory"
 platforms = ["osx-64", "linux-64"]
 
-
-[environments]
-modkit = ["modkit"]
-
 [tasks]
+
 # Launch Shiny GUI application
 MethaDory = { cmd = "cd src/shiny && Rscript app.R" }
 
 # Command-line analysis tools
 MethaDory_cli = { cmd = "cd src/cli && Rscript run_methadory.R" }
 MethaDory_html = { cmd = "cd src/cli && Rscript generate_methadory_html_report.R" }
-MethaDory_ont_extract = { cmd = "cd ONT-Input-preparation &&  bash MethaDory-extract-methylation.sh" }
-MethaDory_ont_input = { cmd = "cd src/cli && Rscript ont_input_prep.R" }
+MethaDory_ont_extract_cmd = { cmd = "cd ONT-Input-preparation && bash MethaDory-extract-methylation.sh" }
+MethaDory_ont_input_cmd   = { cmd = "cd src/cli && Rscript ont_input_prep.R" }
+MethaDory_ont_extract = { cmd = "pixi run -e modkit MethaDory_ont_extract_cmd --" }
+MethaDory_ont_input   = { cmd = "pixi run -e modkit MethaDory_ont_input_cmd --" }
 
-[tasks.MethaDory_ont_extract_modkit]
-depends-on = [{ task = "MethaDory_ont_extract", environment = "modkit" }]
 
 [dependencies]
 bioconductor-genomeinfodb = ">=1.42.0,<2"
@@ -62,7 +59,3 @@ r-htmlwidgets = ">=1.6.4,<2"
 r-fs = ">=1.6.4,<2"
 r-biocmanager = ">=1.30.25,<2"
 r-circlize = ">=0.4.16,<0.5"
-bedtools = ">=2.31.1,<3"
-
-[feature.modkit.dependencies]
-ont-modkit = "==0.5.0"
