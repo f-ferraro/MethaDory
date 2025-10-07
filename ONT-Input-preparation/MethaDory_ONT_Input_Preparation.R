@@ -31,7 +31,7 @@ for (i in list.files(input_dir, full.names = TRUE)) {
   df = df[df$TotalDepth >= 13 & df$UsableFraction > 0.75, ]
 
   df = df[, names(df) %in% c("V19", "V11")]
-  names(df) = c(basename(gsub(".pseudoepic.cpgID.bed.gz", "", i)), "IlmnID")
+  names(df) = c(basename(gsub(".pseudoepic.cpgID.bed", "", i)), "IlmnID")
   
   res[[i]] = df
 }
