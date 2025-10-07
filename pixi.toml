@@ -12,10 +12,10 @@ MethaDory = { cmd = "cd src/shiny && Rscript app.R" }
 # Command-line analysis tools
 MethaDory_cli = { cmd = "cd src/cli && Rscript run_methadory.R" }
 MethaDory_html = { cmd = "cd src/cli && Rscript generate_methadory_html_report.R" }
+
 MethaDory_ont_extract_cmd = { cmd = "cd ONT-Input-preparation && bash MethaDory-extract-methylation.sh" }
-MethaDory_ont_input_cmd   = { cmd = "cd src/cli && Rscript ont_input_prep.R" }
-MethaDory_ont_extract = { cmd = "pixi run -e modkit MethaDory_ont_extract_cmd --" }
-MethaDory_ont_input   = { cmd = "pixi run -e modkit MethaDory_ont_input_cmd --" }
+MethaDory_ont_extract = { cmd = "pixi run -e modkit MethaDory_ont_extract_cmd" }
+MethaDory_ont_input   = { cmd = "pixi run -e modkit MethaDory_ont_input" }
 
 
 [dependencies]
