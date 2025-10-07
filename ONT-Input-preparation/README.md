@@ -5,10 +5,10 @@
 
 The dependencies for these scripts are included in the `pixi.toml` of MethaDory.
 
-We provide the required `ilmn.epic.s.manifest.annot.1pd.bed.gz` containing the coordinates we use.
+We provide the required `ilmn.epic.s.manifest.annot.1pd.bed.gz` containing the coordinates we use. Please uncompress it after downloading.
 
 ### ONT data 
-To ensure these command are executed correctly, specify the full path to the `MethaDory/pixi.toml` from the main `MethaDory` repository.
+To ensure these commands are executed correctly, specify the full path to the `MethaDory/pixi.toml` from the main `MethaDory` repository.
 
 For each sample of interest:
 
