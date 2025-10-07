@@ -1,6 +1,8 @@
 # MethaDory
 
-<img style="float: right;" src="src/shiny/html_imports/methadory.png" width="200">
+<p align="center">
+  <img src="src/shiny/html_imports/methadory.png" width="200">
+</p>
 
 `MethaDory` is a shiny app for testing of DNAm signatures as described in ['***Training with synthetic data provides accurate and openly-available DNA methylation classifiers for developmental disorders and congenital anomalies via MethaDory***' (Ferraro et al., 2025)](https://www.medrxiv.org/content/10.1101/2025.03.28.25324859v1). 
 
@@ -92,7 +94,7 @@ pixi run --manifest-path MethaDory/pixi.toml MethaDory_html <model_folder> <samp
 
 
 
-The first time you run `MethaDory`, allow some time (~15') to install the necessary prerequisites.
+The first time you run `MethaDory`, allow some time (~15') to install the necessary prerequisites. You might have to to launch the command a couple of times to install all the dependencies.
 If the local web browser doesn't open automatically, double click on the link shown on the terminal or paste it in a web browser of choice. 
 
 `MethaDory` relies on web browser being installed and set as default in your system. If you get the error:
