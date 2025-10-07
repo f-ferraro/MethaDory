@@ -1,4 +1,5 @@
-.DS_ignore
 data/
 
-.DS_Store
+*/.DS_Store
+*/.Rhistory
+*/Rplots.pdf
