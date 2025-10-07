@@ -4,6 +4,9 @@ channels = ["dnachun", "conda-forge", "bioconda", "r"]
 name = "MethaDory"
 platforms = ["osx-64", "linux-64"]
 
+[environments]
+modkit = ["modkit"]
+
 [tasks]
 
 # Launch Shiny GUI application
@@ -59,3 +62,6 @@ r-htmlwidgets = ">=1.6.4,<2"
 r-fs = ">=1.6.4,<2"
 r-biocmanager = ">=1.30.25,<2"
 r-circlize = ">=0.4.16,<0.5"
+
+[feature.modkit.dependencies]
+ont-modkit = "==0.5.0"
