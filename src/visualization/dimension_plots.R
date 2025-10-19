@@ -12,9 +12,15 @@ prepare_insilico_cases <- function(signatures, insilico_beta) {
 
     # Match the order of probes to the signature
     y <- y[match(x$ProbeID, rownames(y)), ]
-
+    
+    # Beta distribution for noise in effect size
+    a <- 10
+    b <- 1
+    beta_mode <- (a - 1) / (a + b - 2)
+    set.seed(42);beta_values <- rbeta(n = ncol(y), shape1 = a, shape2 = b) + (1 - beta_mode)
+    
     # Apply delta beta and clamp values between 0 and 1
-    y <- y + x$deltaBeta
+    y <- y + outer(x$deltaBeta, beta_values)
     y[y < 0] <- 0
     y[y > 1] <- 1
 
