@@ -128,6 +128,8 @@ PHIP1
 
 PQBP1
 
+PTBP1
+
 PURA
 
 RNU4-2
@@ -185,6 +187,10 @@ ZNF699
 ZNF711
 
 chr16p11.2del
+
+chr17p11.2del
+
+chr17p11.2dup
 
 chr21tris
 
