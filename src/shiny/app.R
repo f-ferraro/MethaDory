@@ -1,6 +1,6 @@
 # Add packages that are broken in pixi
 packages <- c("FDb.InfiniumMethylation.hg19", "IlluminaHumanMethylation450kanno.ilmn12.hg19",
-              "ChAMPdata",  "GenomeInfoDb", )
+              "ChAMPdata",  "GenomeInfoDb")
 
 for (pkg in packages) {
   if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
