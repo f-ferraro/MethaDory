@@ -22,9 +22,12 @@
 #'   --help                  Show this help message
 
 
-# Add packages that are broken in pixi
-packages <- c("ChAMPdata", "FDb.InfiniumMethylation.hg19", "GenomeInfoDb", "IlluminaHumanMethylation450kanno.ilmn12.hg19")
+options(timeout = 2000)
+Sys.setenv(R_DEFAULT_INTERNET_TIMEOUT = "2000")
 
+# Add packages that are broken in pixi
+packages <- c("FDb.InfiniumMethylation.hg19", "IlluminaHumanMethylation450kanno.ilmn12.hg19",
+              "ChAMPdata",  "GenomeInfoDb")
 for (pkg in packages) {
   if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
     BiocManager::install(pkg)
