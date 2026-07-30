@@ -48,6 +48,12 @@ MethaDory relies on a number of files provided in the `data` folder. This folder
 
 Otherwise a number of CLI are also available. Please specificy full paths to all required inputs. 
 
+### Running the Container
+
+```
+docker run -it -v ./:/data ghcr.io/f-ferraro/MethaDory:latest MethaDory_cli /app/data/models/<platform>/<model>/ /data/demo.input.txt /data/output
+```
+
 
 ### Table and PDF exports
 ```bash
