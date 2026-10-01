@@ -1,6 +1,8 @@
 source("../core/data_processing.R")
 source("../core/svm_prediction.R")
+source("../core/nnet_prediction.R")
 source("../core/methylation_analysis.R")
+source("../core/sample_qc.R")
 source("../visualization/prediction_plots.R")
 source("../visualization/dimension_plots.R")
 source("../visualization/analysis_plots.R")
@@ -31,15 +33,52 @@ server <- function(input, output, session) {
     show_modal_spinner(spin = "rotating-plane", color = "#279CED", text = "Please wait...")
 
     data_list <- load_test_data(input$dataFile$datapath)
+
     background_data <- load_background_data(values$model_dir)
+
+    # Sample QC: PCA of each proband with the controls, on pre-imputation betas.
+    # A failure here costs the QC tab only, not the analysis.
+    qc_pca <- tryCatch(
+      compute_qc_pca(data_list$test_data, background_data$imputation_background,
+                     data_list$test_data_ids),
+      error = function(e) {
+        cat(paste("ERROR computing the sample QC PCA:", e$message, "\n"))
+        list()
+      })
+
     cat("Using", input$nImputationSamples, "closest samples for imputation\n")
+
+    # Union of SVM predictors, NNET probe_ids and ALL signature CpGs drives
+    # the imputation panel. Including the full signature CpGs ensures
+    # signatures whose probes weren't selected by feature-selection during
+    # model training (or whose models aren't loaded) still get imputed beta
+    # values for the proband -- otherwise the dimension-reduction plots
+    # drop their rows after na.omit and fail.
+    extra_nnet_cpgs <- get_nnet_required_cpgs(background_data$nnet_files)
+    all_signature_cpgs <- unique(read.delim(
+      "../../data/support_files/merged_signatures_90DMRs.tsv",
+      header = TRUE)$ProbeID)
     imputation_data <- prepare_imputation_data(data_list$test_data, background_data$imputation_background,
-                                               background_data$svm, n_closest = input$nImputationSamples)
+                                               background_data$svm, n_closest = input$nImputationSamples,
+                                               extra_cpgs = c(extra_nnet_cpgs, all_signature_cpgs))
+    # QC: share of the model CpGs missing before imputation (PASS/WARNING/FAIL)
+    qc_missing <- compute_pre_imputation_missing(imputation_data$test_data, data_list$test_data_ids)
     imputed_data <- perform_imputation(imputation_data$test_data, data_list$test_data_ids)
 
     beta_sig_data <- load_beta_signatures()
+
+    # QC: % NA per (sample x signature) BEFORE imputation -- surfaced in the
+    # prediction table so users can flag predictions made on mostly-imputed
+    # data. Computed from the pre-imputation matrix `imputation_data$test_data`.
+    na_pct_pre <- compute_pre_imputation_na_pct(imputation_data$test_data,
+                                                beta_sig_data$signatures,
+                                                data_list$test_data_ids)
+
     inference_data <- prepare_inference_data(imputed_data, background_data$svm)
-    results <- make_predictions(inference_data, background_data$svm, data_list$test_data_ids)
+    svm_results  <- make_predictions(inference_data, background_data$svm, data_list$test_data_ids)
+    nnet_results <- make_nnet_predictions(imputed_data, background_data$nnet_files,
+                                          data_list$test_data_ids)
+    results <- combine_svm_nnet_results(svm_results, nnet_results, na_pct = na_pct_pre)
     real_cases_data <- load_real_cases(beta_sig_data$signatures)
 
     # Use insilico_meta from beta_sig_data and prepare it for plotting
@@ -56,7 +95,8 @@ server <- function(input, output, session) {
     values$data <- list(data_list=data_list, background_data=background_data, imputed_data=imputed_data,
                         beta_sig_data=beta_sig_data, inference_data=inference_data, results=results,
                         real_cases_data=real_cases_data, plot_data=plot_data, plot_metadata=plot_metadata,
-                        cell_props=cell_props, chr_sex_table=chr_sex_table, age_table=age_table)
+                        cell_props=cell_props, chr_sex_table=chr_sex_table, age_table=age_table,
+                        qc_pca=qc_pca, qc_missing=qc_missing)
 
     updateCheckboxGroupInput(session, "proband", choices = data_list$test_data_ids, selected = data_list$test_data_ids)
     updateSelectizeInput(session, "signatures", choices = names(beta_sig_data$signatures), selected = character(0))
@@ -132,9 +172,32 @@ server <- function(input, output, session) {
     updateSelectizeInput(session, "signatures", choices = names(values$data$beta_sig_data$signatures), selected = character(0))
   })
 
-  output$chrSexPlot <- renderPlot({
+  output$qcMissing <- renderUI({
     req(values$data, input$proband)
-    predict_chr_sex_plot(values$data$chr_sex_table, input$proband)
+    HTML(create_qc_missing_html(values$data$qc_missing, input$proband))
+  })
+  # Cell proportions with the chromosomal sex prediction to their right
+  output$qcCellSexPlot <- renderPlot({
+    req(values$data, input$proband)
+    create_qc_cell_sex_plot(
+      create_cell_deconv_plot(values$data$cell_props, values$data$background_data$cellprops, input$proband),
+      predict_chr_sex_plot(values$data$chr_sex_table, input$proband))
+  })
+  output$qcPcaPlot <- renderPlot({
+    req(values$data, input$proband)
+    qc_pca_plot <- create_qc_pca_plot(values$data$qc_pca, input$proband)
+    shiny::validate(need(!is.null(qc_pca_plot), "Sample QC PCA not available for the selected samples"))
+    qc_pca_plot
+  }, height = function() {
+    500 * max(1, length(intersect(input$proband, names(values$data$qc_pca))))
+  })
+  output$qcDensityPlot <- renderPlot({
+    req(values$data, input$proband)
+    qc_density_plot <- create_qc_density_plot(values$data$qc_pca, input$proband)
+    shiny::validate(need(!is.null(qc_density_plot), "Beta-value distribution not available for the selected samples"))
+    qc_density_plot
+  }, height = function() {
+    400 * max(1, length(intersect(input$proband, names(values$data$qc_pca))))
   })
   output$methAgeTable <- renderDT({
     req(values$data, input$proband)
@@ -143,19 +206,46 @@ server <- function(input, output, session) {
   output$predictionTable <- renderDT({
     req(values$data, input$proband, input$minPSVM)
 
-    # Filter by proband and minimum pSVM threshold
+    # Filter by proband and minimum metapredictor threshold (mean of SVM+NNET)
     filtered_data <- values$data$results[values$data$results$SampleID %in% input$proband &
-                                        values$data$results$pSVM_average >= input$minPSVM, ]
+                                        !is.na(values$data$results$mean_case) &
+                                        values$data$results$mean_case >= input$minPSVM, ]
 
     # Additionally filter by signatures if any are selected
     if (!is.null(input$signatures) && length(input$signatures) > 0) {
       filtered_data <- filtered_data[filtered_data$SVM %in% gsub("_", " ", input$signatures), ]
     }
 
+    # Display columns: drop whisker_low/high and abs_diff; expose mean_case
+    # as pCombined (the average of pSVM and pNNET).
+    drop_cols <- c("whisker_low", "whisker_high", "abs_diff")
+    filtered_data <- filtered_data[, setdiff(names(filtered_data), drop_cols), drop = FALSE]
+    names(filtered_data)[names(filtered_data) == "mean_case"] <- "pCombined"
+
+    round_cols <- intersect(c("pSVM_average", "pSVM_sd",
+                              "pNNET_average", "pNNET_sd",
+                              "pCombined"),
+                            names(filtered_data))
+
+    # QC: number of SVM / NNET classifiers actually loaded per signature.
+    # Helps spot signatures where fewer .rds / .pth files are present in the
+    # model folder than expected (e.g. 6 expected but only 4 loaded).
+    rename_cols <- c(n_svm = "n SVM", n_nnet = "n NNET",
+                     pct_na_pre = "% NA pre-imputation")
+    for (old in names(rename_cols)) {
+      if (old %in% names(filtered_data)) {
+        names(filtered_data)[names(filtered_data) == old] <- rename_cols[[old]]
+      }
+    }
+
+    # Apply the same color coding to the per-model probabilities as pCombined.
+    score_cols <- intersect(c("pCombined", "pSVM_average", "pNNET_average"),
+                            names(filtered_data))
+
     datatable(filtered_data, options = list(pageLength = 25)) %>%
-      formatRound(columns = c("pSVM_average", "pSVM_sd"), digits = 2) %>%
+      formatRound(columns = round_cols, digits = 2) %>%
       formatStyle(
-        columns = "pSVM_average",
+        columns = score_cols,
         backgroundColor = styleInterval(c(0.25, 0.5), c("white", "#FAD302", "#9E1E05")),
         color = styleInterval(0.5, c("black", "white")),
         fontWeight = styleInterval(0.5, c("normal", "bold"))
@@ -169,7 +259,8 @@ server <- function(input, output, session) {
       # Count how many signatures will remain after filtering
       filtered_data <- values$data$results[values$data$results$SampleID %in% input$proband &
                                          values$data$results$SVM %in% gsub("_", " ", input$signatures) &
-                                         values$data$results$pSVM_average >= input$plotThreshold, ]
+                                         !is.na(values$data$results$mean_case) &
+                                         values$data$results$mean_case >= input$plotThreshold, ]
       n_signatures <- length(unique(filtered_data$SVM))
     } else {
       n_signatures <- length(input$signatures)
@@ -236,12 +327,6 @@ server <- function(input, output, session) {
                   backgroundColor = styleEqual(c("WARNING", "FAIL"), c("#FFEBCD", "#DE4C35"))) 
   })
 
-  output$cellpropPlot <- renderPlot({
-    req(values$data, input$proband)
-    create_cell_deconv_plot(values$data$cell_props, values$data$background_data$cellprops, input$proband)
-
-  })
-
   output$pageControls <- renderUI({
     req(input$plotsPerPage)
     signatures <- high_scoring_signatures()
@@ -302,7 +387,10 @@ server <- function(input, output, session) {
     start_idx <- (values$current_page - 1) * input$plotsPerPage + 1
     end_idx <- min(values$current_page * input$plotsPerPage, length(signatures))
     current_signatures <- signatures[start_idx:end_idx]
-    plot_output_list <- lapply(current_signatures, function(s) plotOutput(paste0("plot", s), height = 1200))
+    # Height covers every row of the per-signature figure (see
+    # DIMENSION_PLOT_ROW_HEIGHTS) at the original per-unit size (400 px).
+    plot_h <- round(400 * DIMENSION_PLOT_UNITS)
+    plot_output_list <- lapply(current_signatures, function(s) plotOutput(paste0("plot", s), height = plot_h))
     do.call(tagList, plot_output_list)
   })
   observe({
@@ -324,8 +412,8 @@ server <- function(input, output, session) {
         local({
           s_local <- s
 
-          # Check plot cache first
-          cache_key <- paste(s_local, paste(sort(trigger$probands), collapse = "_"), sep = "_")
+          cache_key <- paste(s_local, paste(sort(trigger$probands), collapse = "_"),
+                             sep = "_")
 
           if (!is.null(values$plot_cache[[cache_key]])) {
             output[[paste0("plot", s_local)]] <- values$plot_cache[[cache_key]]
@@ -336,7 +424,8 @@ server <- function(input, output, session) {
                 tryCatch({
                   create_dimension_reduction_plots(values$data$plot_data[[s_local]],
                                                  values$data$plot_metadata[[s_local]],
-                                                 trigger$probands, s_local,
+                                                 trigger$probands,
+                                                 s_local,
                                                  values$data$age_table,
                                                  values$data$chr_sex_table,
                                                  n_samples_per_group = input$nSamplesPerGroup)
@@ -363,12 +452,24 @@ server <- function(input, output, session) {
     filename = function() paste0("MethaDory_results_", Sys.Date(), ".xlsx"),
     content = function(file) {
       export_table <- values$data$results
-      export_table <- pivot_wider(export_table, id_cols = "SampleID", names_from = "SVM", values_from = c("pSVM_average", "pSVM_sd"))
-      names(export_table) <- gsub("pSVM_", "pSVM", names(export_table))
+      value_cols <- intersect(c("pSVM_average", "pSVM_sd",
+                                "pNNET_average", "pNNET_sd",
+                                "mean_case", "whisker_low", "whisker_high", "abs_diff"),
+                              names(export_table))
+      export_table <- pivot_wider(export_table, id_cols = "SampleID",
+                                  names_from = "SVM",
+                                  values_from = all_of(value_cols))
       names(export_table) <- gsub("_", " ", names(export_table))
       cell_props_exports <- pivot_wider(values$data$cell_props[values$data$cell_props$Proband %in% input$proband,],
                                         id_cols = "Proband", names_from = "CellType", values_from = "CellProp")
-      openxlsx::write.xlsx(list("MethaDory Predictions" = export_table,
+      # Record the signature version so the exported tables are traceable.
+      analysis_info <- data.frame(
+        Field = c("signature_version", "signature_file", "generated"),
+        Value = c(signature_version(), SIGNATURE_FILE, as.character(Sys.time())),
+        stringsAsFactors = FALSE
+      )
+      openxlsx::write.xlsx(list("Analysis Info" = analysis_info,
+                                "MethaDory Predictions" = export_table,
                                 "Cell deconvolutions" = cell_props_exports,
                                 "Predicted age" = values$data$age_table[values$data$age_table$Proband %in% input$proband,],
                                 "Predicted chr sex" = values$data$chr_sex_table[values$data$chr_sex_table$Proband %in% input$proband,]),
@@ -378,8 +479,9 @@ server <- function(input, output, session) {
   output$downloadPlots <- downloadHandler(
     filename = function() paste0("MethaDory_plots_", Sys.Date(), ".pdf"),
     content = function(file) {
-      # Filter to only high-scoring signatures
-      high_scoring <- values$data$results[values$data$results$pSVM_average >= input$minPSVMForPlots, ]
+      # Filter to only high-scoring signatures (by metapredictor mean)
+      high_scoring <- values$data$results[!is.na(values$data$results$mean_case) &
+                                            values$data$results$mean_case >= input$minPSVMForPlots, ]
       high_scoring_sigs <- unique(high_scoring$SVM)
       high_scoring_sigs <- gsub(" ", "_", high_scoring_sigs)
 
@@ -387,13 +489,15 @@ server <- function(input, output, session) {
       sigs_to_plot <- intersect(input$signatures, high_scoring_sigs)
       sigs_to_plot <- sigs_to_plot[sigs_to_plot %in% names(values$data$plot_data)]
 
-      pdf(file, width = 25, height = 16)
-      print(create_prediction_plot(values$data$results, input$proband, input$signatures, 100 + (length(input$signatures) * 100)))
+      pdf(file, width = 25, height = 22 * DIMENSION_PLOT_HEIGHT_SCALE)
+      print(fit_to_dimension_page(create_prediction_plot(values$data$results, input$proband, input$signatures, 100 + (length(input$signatures) * 100))))
 
       for (s in sigs_to_plot) {
         tryCatch({
           print(create_dimension_reduction_plots(values$data$plot_data[[s]], values$data$plot_metadata[[s]],
-                                                input$proband, s, values$data$age_table, values$data$chr_sex_table,
+                                                input$proband,
+                                                s,
+                                                values$data$age_table, values$data$chr_sex_table,
                                                 n_samples_per_group = input$nSamplesPerGroup))
         }, error = function(e) {
           cat("ERROR generating plot for", s, "in PDF export:", e$message, "\n")

@@ -1,15 +1,15 @@
-options(timeout = 2000)
-Sys.setenv(R_DEFAULT_INTERNET_TIMEOUT = "2000")
+options(timeout = 10000)
+Sys.setenv(R_DEFAULT_INTERNET_TIMEOUT = "10000")
 
 # Add packages that are broken in pixi
-packages <- c("FDb.InfiniumMethylation.hg19", "IlluminaHumanMethylation450kanno.ilmn12.hg19",
-              "ChAMPdata",  "GenomeInfoDb")
-
-for (pkg in packages) {
-  if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
-    BiocManager::install(pkg)
-  }
-}
+# packages <- c("FDb.InfiniumMethylation.hg19", "IlluminaHumanMethylation450kanno.ilmn12.hg19",
+#               "ChAMPdata",  "GenomeInfoDb")
+# 
+# for (pkg in packages) {
+#   if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
+#     BiocManager::install(pkg)
+#   }
+# }
 
 # Load required libraries
 suppressPackageStartupMessages({
@@ -32,13 +32,20 @@ suppressPackageStartupMessages({
   library(shinybusy)
   library(shinydashboard)
   library(shinyFiles)
-  library(tidyverse)
+  # tidyverse components actually used (avoid pulling the meta-package).
+  library(dplyr)
+  library(tidyr)
+  library(stringr)
+  library(ggplot2)
+  library(purrr)
+  library(tibble)
   library(scales)
   library(ggrepel)
   library(htmlwidgets)
   library(base64enc)
   library(jsonlite)
   library(markdown)
+  library(reticulate)
 })
 
 # Set Shiny options

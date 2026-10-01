@@ -18,7 +18,9 @@ create_cell_deconv_table <- function(samples_of_interest_beta) {
                     names_to="Proband",
                     values_to="CellProp")
 
-  bf$CellType = gsub("B", "Bcell", bf$CellType)
+  # EpiDISH returns "B" for B cells; keep that name so the proband points
+  # land on the same x-axis category as the training background, which is
+  # also produced from EpiDISH (no rename).
   return(bf)
 }
 
@@ -38,6 +40,14 @@ predict_age <- function(test_beta) {
   
   ages = ages[, names(ages) %like% "Proband|skin"]
   names(ages) = c("Proband", "Predicted age", "Missing CpGs for prediction")
+
+  # Show the missing CpGs out of the clock's total (skin & blood clock, 391
+  # CpGs), otherwise the count alone says little.
+  n_clock_cpgs <- tryCatch({
+    data("age_coefficients", package = "wateRmelon", envir = environment())
+    sum(names(ageCoefs$SkinBlood) != "(Intercept)")
+  }, error = function(e) 391)
+  ages[["Missing CpGs for prediction"]] = paste(ages[["Missing CpGs for prediction"]], "/", n_clock_cpgs)
   
   return(ages)
 }
@@ -51,7 +61,10 @@ predict_chr_sex_table <- function(test_beta) {
   rownames(test_beta) = test_beta$IlmnID
   test_beta$IlmnID = NULL
 
-  x = estimateSex(test_beta, do_plot=F)
+  # estimateSex misparses a tibble/grouped input (matrix coercion silently
+  # drops sample names); force a plain data.frame so probe rownames + sample
+  # colnames survive.
+  x = estimateSex(as.data.frame(test_beta), do_plot=F)
   x = tibble::rownames_to_column(x, "Proband")
   return(x)
 }

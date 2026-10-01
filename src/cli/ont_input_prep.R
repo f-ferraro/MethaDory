@@ -2,7 +2,8 @@
 
 # Load packages required for MethaDory 
 suppressPackageStartupMessages({
-  library(tidyverse)
+  library(dplyr)   # full_join, relocate, %>%
+  library(purrr)   # reduce
 })
 
 # Read command-line arguments

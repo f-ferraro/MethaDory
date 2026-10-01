@@ -60,13 +60,25 @@ create_html_export <- function(values, input, file_path) {
     predict_chr_sex_plot(values$data$chr_sex_table, input$proband)
   } else NULL
 
-  # Filter signatures with pSVM_average >= threshold for dimension plots
+  qc_pca_plot <- create_qc_pca_plot(values$data$qc_pca, input$proband)
+  qc_pca_base64 <- if(!is.null(qc_pca_plot)) {
+    n_rows <- length(intersect(input$proband, names(values$data$qc_pca)))
+    plot_to_base64(qc_pca_plot, width = 14, height = 7 * n_rows)
+  } else ""
+  qc_density_plot <- create_qc_density_plot(values$data$qc_pca, input$proband)
+  qc_density_base64 <- if(!is.null(qc_density_plot)) {
+    plot_to_base64(qc_density_plot, width = 14, height = 6 * n_rows)
+  } else ""
+
+  # Filter signatures with combined mean(SVM, NNET) score >= threshold for dimension plots
   high_scoring_signatures <- character(0)
   min_psvm_threshold <- if (!is.null(input$minPSVMForPlots)) input$minPSVMForPlots else 0.05
 
   if(include_dim_plots) {
-    # Get signatures with pSVM_average >= threshold
-    high_scoring_results <- filtered_results[filtered_results$pSVM_average >= min_psvm_threshold, ]
+    # Get signatures with mean(SVM, NNET) >= threshold
+    score_col <- if ("mean_case" %in% names(filtered_results)) "mean_case" else "pSVM_average"
+    high_scoring_results <- filtered_results[!is.na(filtered_results[[score_col]]) &
+                                                filtered_results[[score_col]] >= min_psvm_threshold, ]
     high_scoring_signatures <- unique(high_scoring_results$SVM)
     high_scoring_signatures <- gsub(" ", "_", high_scoring_signatures)
     high_scoring_signatures <- high_scoring_signatures[high_scoring_signatures %in% input$signatures]
@@ -91,7 +103,9 @@ create_html_export <- function(values, input, file_path) {
 
       # Save plot to temporary file immediately
       temp_file <- tempfile(pattern = paste0("dimplot_", s, "_"), fileext = ".jpg")
-      ggsave(temp_file, plot_obj, width = 16, height = 16, dpi = 100,
+      ggsave(temp_file, plot_obj,
+             width = 16,
+               height = 16 * DIMENSION_PLOT_HEIGHT_SCALE, dpi = 100,
              device = "jpeg", quality = 90)
 
       # Store file path instead of plot object
@@ -107,13 +121,12 @@ create_html_export <- function(values, input, file_path) {
   # Convert plot to base64
   prediction_plot_base64 <- plot_to_base64(prediction_plot, width = 12, height = 8)
 
-  # Convert ggplot to base64 images
-  cell_prop_base64 <- if(!is.null(cell_prop_plot)) {
-    plot_to_base64(cell_prop_plot, width = 10, height = 7)
-  } else ""
-
-  chr_sex_base64 <- if(!is.null(chr_sex_plot)) {
-    plot_to_base64(chr_sex_plot, width = 10, height = 8)
+  # QC tab: cell proportions with the chromosomal sex prediction to their right
+  qc_cell_sex_plot <- create_qc_cell_sex_plot(cell_prop_plot, chr_sex_plot)
+  qc_cell_sex_base64 <- if(!is.null(qc_cell_sex_plot)) {
+    plot_to_base64(qc_cell_sex_plot,
+                   width = if(!is.null(cell_prop_plot) && !is.null(chr_sex_plot)) 20 else 10,
+                   height = 8)
   } else ""
 
   # Convert cached dimension plots to base64 by reading from disk
@@ -142,14 +155,15 @@ create_html_export <- function(values, input, file_path) {
     references_html = references_html,
     prediction_plot_base64 = prediction_plot_base64,
     prediction_table_data = filtered_results,
-    cell_prop_base64 = cell_prop_base64,
-    chr_sex_base64 = chr_sex_base64,
     age_table_data = age_table_filtered,
     dim_plots_base64 = dim_plots_base64,
     signatures = input$signatures,
-    include_cell_plot = include_cell_plot,
-    include_chr_sex_plot = include_chr_sex_plot,
-    include_dim_plots = include_dim_plots
+    include_dim_plots = include_dim_plots,
+    signature_version = signature_version(),
+    qc_missing_html = create_qc_missing_html(values$data$qc_missing, input$proband),
+    qc_cell_sex_base64 = qc_cell_sex_base64,
+    qc_pca_base64 = qc_pca_base64,
+    qc_density_base64 = qc_density_base64
   )
 
   writeLines(html_content, file_path)

@@ -192,6 +192,42 @@ prepare_plot_metadata <- function(signatures, plot_data, user_plot_beta, real_ca
   return(data_for_plots_meta)
 }
 
+#' Case labels a signature accepts as its own real cases.
+#'
+#' A signature is named <genes>_<Study>, and <genes> may cover several genes
+#' joined by "-" (KMT2D-KDM6A, NIPBL-RAD21-SMC3-SMC1A) and carry a subtype after
+#' a "." (SRCAP.FLHS, ARID1A-ARID1B.c.6200). The real cases are labelled with
+#' ONE gene or subtype each (KMT2D, KDM6A, SRCAP.FLHS), so the accepted labels
+#' are: the whole <genes> part, each "-"-separated gene in it, and every
+#' "."-prefix of those (SMARCA2.BISS also accepts SMARCA2).
+#'
+#' The whole part is kept next to its pieces because "-" is also part of some
+#' gene names: RNU2-2 must accept the label RNU2-2, and its pieces "RNU2" and
+#' "2" are harmless since no case carries them.
+#'
+#' The previous rule took a label only when it was a prefix of the signature
+#' name followed by the end, "." or "_". After KMT2D in KMT2D-KDM6A comes "-",
+#' so every multi-gene signature lost all of its real cases.
+#'
+#' @param signature_name "<genes>_<Study>", possibly with a suffix after that.
+#' @return character vector of accepted labels, lower case.
+signature_case_labels <- function(signature_name) {
+  genes <- sub("_.*$", "", signature_name)
+  parts <- unique(c(genes, strsplit(genes, "-", fixed = TRUE)[[1]]))
+  dot_prefixes <- function(x) {
+    pieces <- strsplit(x, ".", fixed = TRUE)[[1]]
+    vapply(seq_along(pieces), function(i) paste(pieces[seq_len(i)], collapse = "."),
+           character(1))
+  }
+  labels <- unique(unlist(lapply(parts, dot_prefixes)))
+  tolower(labels[nzchar(labels)])
+}
+
+#' Which Status values are real cases of this signature.
+status_matches_signature <- function(status, signature_name) {
+  tolower(as.character(status)) %in% signature_case_labels(signature_name)
+}
+
 #' Create color scheme for plots
 #'
 #' @param test_id Test ID
@@ -285,7 +321,460 @@ create_pca_plot <- function(pca_object) {
     ylab(paste0("PC2 (", variance_pct[2], "%)")) +
     ggtitle("PCA") +
     scale_colour_manual(values = ann_colors$Status) +
+    guides(size = "none", shape = "none", alpha = "none") +
+    # Force a square panel so the plot's x-axis matches its y-axis. The
+    # surrounding patchwork row keeps its allotted height; the empty space
+    # ends up flanking the (now-narrower) PCA panel.
+    theme(aspect.ratio = 1)
+}
+
+#' Create similarity-to-median-profile scatter (NSD1-paper style).
+#'
+#' For a signature's probe set, builds a median CASE profile (real cases +
+#' in-silico synthetic cases - the same samples shown in the PCA/heatmap) and a
+#' median CONTROL profile, then plots every sample by its Pearson similarity to
+#' the control profile (x) vs the case profile (y). Uses the same Status colour
+#' scheme as the PCA/heatmap; proband(s) are drawn as a top layer so their
+#' landing point is unambiguous.
+#'
+#' @param data_beta probes x samples matrix/data.frame (already aligned to
+#'   data_meta).
+#' @param data_meta metadata aligned to data_beta columns (needs Status).
+#' @return ggplot object, or NULL if there aren't enough cases/controls/probes.
+create_similarity_plot <- function(data_beta, data_meta) {
+  mat <- as.matrix(data_beta)
+  status <- data_meta[colnames(mat), "Status"]
+
+  # Case = real cases (any diagnosis label) + synthetic in-silico cases.
+  test_id   <- setdiff(unique(status), c("in_silico_case", "control", "proband"))
+  case_cols <- colnames(mat)[status %in% c(test_id, "in_silico_case")]
+  ctrl_cols <- colnames(mat)[status == "control"]
+
+  # Need a stable median on each side and enough probes for a correlation.
+  if (length(case_cols) < 2 || length(ctrl_cols) < 2 || nrow(mat) < 3) {
+    return(NULL)
+  }
+
+  med_case <- apply(mat[, case_cols, drop = FALSE], 1, median, na.rm = TRUE)
+  med_ctrl <- apply(mat[, ctrl_cols, drop = FALSE], 1, median, na.rm = TRUE)
+
+  sim_case <- apply(mat, 2, function(x) suppressWarnings(cor(x, med_case, use = "complete.obs")))
+  sim_ctrl <- apply(mat, 2, function(x) suppressWarnings(cor(x, med_ctrl, use = "complete.obs")))
+
+  df <- data.frame(
+    Sample   = colnames(mat),
+    sim_ctrl = sim_ctrl,
+    sim_case = sim_case,
+    Status   = status,
+    stringsAsFactors = FALSE
+  )
+  df <- df[is.finite(df$sim_ctrl) & is.finite(df$sim_case), , drop = FALSE]
+  if (nrow(df) < 2) return(NULL)
+
+  # Same colour scheme as the PCA / heatmap Status annotation.
+  ann_colors <- create_annotation_colors(test_id)
+  missing_statuses <- setdiff(unique(df$Status), names(ann_colors$Status))
+  if (length(missing_statuses) > 0) {
+    default_colors <- rainbow(length(missing_statuses))
+    names(default_colors) <- missing_statuses
+    ann_colors$Status <- c(ann_colors$Status, default_colors)
+  }
+
+  # Shared square axis limits (x == y) so the diagonal is meaningful.
+  lim <- range(c(df$sim_ctrl, df$sim_case), na.rm = TRUE)
+  pad <- diff(lim) * 0.03
+  lim <- c(lim[1] - pad, lim[2] + pad)
+
+  ggplot() +
+    geom_abline(slope = 1, intercept = 0, color = "red") +
+    # Base layer: everything except the proband.
+    geom_point(df[df$Status != "proband", ],
+               mapping = aes(sim_ctrl, sim_case,
+                             color = Status,
+                             shape = (Status == "proband")),
+               size = 6, alpha = 0.75) +
+    # Top layer: proband(s), larger so their landing point is unambiguous.
+    geom_point(df[df$Status == "proband", ],
+               mapping = aes(sim_ctrl, sim_case,
+                             color = Status,
+                             shape = (Status == "proband")),
+               size = 12, alpha = 1) +
+    scale_colour_manual(values = ann_colors$Status) +
+    coord_cartesian(xlim = lim, ylim = lim) +
+    theme_minimal() +
+    theme(
+      legend.position = "none",
+      panel.border = element_rect(color = "black", fill = NA, size = 1),
+      aspect.ratio = 1
+    ) +
+    xlab("Similarity to control DNAm profile") +
+    ylab("Similarity to case DNAm profile") +
+    ggtitle("Similarity to median profiles") +
+    guides(size = "none", shape = "none", alpha = "none", color = "none")
+}
+
+#' Status colour scheme shared by the PCA / heatmap, padded for unknown labels.
+#'
+#' @param status character vector of Status values present in the plot.
+#' @return named colour vector covering every value in `status`.
+get_status_colors <- function(status) {
+  test_id <- setdiff(unique(status), c("in_silico_case", "control", "proband"))
+  status_colors <- create_annotation_colors(test_id)$Status
+  missing_statuses <- setdiff(unique(status), names(status_colors))
+  if (length(missing_statuses) > 0) {
+    default_colors <- rainbow(length(missing_statuses))
+    names(default_colors) <- missing_statuses
+    status_colors <- c(status_colors, default_colors)
+  }
+  status_colors
+}
+
+#' Collapse Status into control / case / proband.
+#'
+#' Case = real cases (any diagnosis label) + synthetic in-silico cases, the same
+#' definition create_similarity_plot() uses.
+simplify_status <- function(status) {
+  ifelse(status %in% c("control", "proband"), status, "case")
+}
+
+#' Empty panel with a message, so the combined layout keeps its shape when a
+#' view can't be drawn (e.g. too few cases for a median profile).
+placeholder_panel <- function(title, msg) {
+  ggplot() +
+    annotate("text", x = 0.5, y = 0.5, label = msg, size = 5, colour = "gray50") +
+    xlim(0, 1) + ylim(0, 1) +
+    theme_void() +
+    ggtitle(title)
+}
+
+#' Centre each probe on the median control beta (row means if < 2 controls).
+#'
+#' Raw betas are dominated by each probe's baseline level, so every sample
+#' correlates highly with every other; centring leaves only the deviation from
+#' the control profile, which is what the signature is about.
+center_on_controls <- function(mat, status) {
+  ctrl_cols <- which(status == "control")
+  ref <- if (length(ctrl_cols) >= 2) {
+    apply(mat[, ctrl_cols, drop = FALSE], 1, median, na.rm = TRUE)
+  } else {
+    rowMeans(mat, na.rm = TRUE)
+  }
+  mat - ref
+}
+
+#' PCA fitted on the reference samples only, with the proband(s) projected in.
+#'
+#' In create_pca_plot() the proband takes part in the fit, so a noisy or
+#' platform-shifted proband can define a component by itself. Here the axes
+#' come from case-vs-control variation alone and the proband is placed onto
+#' them afterwards.
+#'
+#' @param data_beta probes x samples, complete (no NA), aligned to data_meta.
+#' @param data_meta metadata aligned to data_beta columns (needs Status).
+#' @param orient_like optional PC1/PC2 scores of the joint PCA (rownames = sample
+#'   IDs). Component signs are arbitrary, so each axis is flipped to agree with
+#'   it and the two PCA panels can be compared side by side.
+#' @return ggplot object, or NULL if fewer than 3 reference samples.
+create_pca_projected_plot <- function(data_beta, data_meta, orient_like = NULL) {
+  mat <- as.matrix(data_beta)
+  status <- data_meta[colnames(mat), "Status"]
+  is_proband <- status == "proband"
+  if (sum(!is_proband) < 3 || !any(is_proband)) return(NULL)
+
+  # Same preprocessing as PCAtools::pca(): centre probes, no scaling.
+  fit <- prcomp(t(mat[, !is_proband, drop = FALSE]), center = TRUE, scale. = FALSE, rank. = 2)
+  projected <- predict(fit, t(mat[, is_proband, drop = FALSE]))
+
+  if (!is.null(orient_like)) {
+    for (k in 1:2) {
+      r <- suppressWarnings(cor(fit$x[, k], orient_like[rownames(fit$x), k]))
+      if (is.finite(r) && r < 0) {
+        fit$x[, k] <- -fit$x[, k]
+        projected[, k] <- -projected[, k]
+      }
+    }
+  }
+
+  pca_plot_data <- data.frame(
+    PC1 = c(fit$x[, 1], projected[, 1]),
+    PC2 = c(fit$x[, 2], projected[, 2]),
+    Status = c(status[!is_proband], status[is_proband])
+  )
+  variance_pct <- round(fit$sdev^2 / sum(fit$sdev^2) * 100)
+
+  status_colors <- get_status_colors(status)
+
+  ggplot() +
+    geom_point(pca_plot_data[pca_plot_data$Status != "proband",],
+               mapping = aes(PC1, PC2, color = Status, shape = (Status == "proband")),
+               size = 3) +
+    geom_point(pca_plot_data[pca_plot_data$Status == "proband",],
+               mapping = aes(PC1, PC2, color = Status, shape = (Status == "proband")),
+               size = 5) +
+    theme_minimal() +
+    theme(
+      legend.position = "bottom",
+      legend.box = "vertical",
+      legend.margin = margin(),
+      panel.border = element_rect(color = "black", fill = NA, size = 1),
+      aspect.ratio = 1
+    ) +
+    xlab(paste0("PC1 (", variance_pct[1], "%)")) +
+    ylab(paste0("PC2 (", variance_pct[2], "%)")) +
+    ggtitle("PCA on cases + controls, proband projected") +
+    scale_colour_manual(values = status_colors) +
     guides(size = "none", shape = "none", alpha = "none")
+}
+
+#' MDS (classical, via cmdscale) on pairwise-complete 1 - Spearman distances.
+#'
+#' Works on the matrix BEFORE na.omit(), so probes the proband is missing still
+#' inform the distances among the reference samples. Betas are centred on the
+#' control median first (see center_on_controls()).
+#'
+#' @param data_beta_full probes x samples, may contain NA, aligned to data_meta.
+#' @param data_meta metadata aligned to data_beta_full columns (needs Status).
+#' @return ggplot object, or NULL if there are too few usable samples.
+create_pcoa_plot <- function(data_beta_full, data_meta) {
+  mat <- as.matrix(data_beta_full)
+  status <- data_meta[colnames(mat), "Status"]
+
+  cm <- suppressWarnings(cor(center_on_controls(mat, status), use = "pairwise.complete.obs",
+                             method = "spearman"))
+  # A sample with no overlapping probes yields NA distances; cmdscale can't take them.
+  keep <- rowSums(is.na(cm)) == 0
+  if (sum(keep) < 3) return(NULL)
+  cm <- cm[keep, keep]
+  status <- status[keep]
+
+  mds <- cmdscale(as.dist(1 - cm), k = 2, eig = TRUE)
+  pos_eig <- mds$eig[mds$eig > 0]
+  variance_pct <- round(pos_eig[1:2] / sum(pos_eig) * 100)
+
+  pcoa_plot_data <- data.frame(PCo1 = mds$points[, 1], PCo2 = mds$points[, 2], Status = status)
+
+  ggplot() +
+    geom_point(pcoa_plot_data[pcoa_plot_data$Status != "proband",],
+               mapping = aes(PCo1, PCo2, color = Status, shape = (Status == "proband")),
+               size = 3) +
+    geom_point(pcoa_plot_data[pcoa_plot_data$Status == "proband",],
+               mapping = aes(PCo1, PCo2, color = Status, shape = (Status == "proband")),
+               size = 5) +
+    theme_minimal() +
+    theme(
+      legend.position = "none",
+      panel.border = element_rect(color = "black", fill = NA, size = 1),
+      aspect.ratio = 1
+    ) +
+    xlab(paste0("PCo1 (", variance_pct[1], "%)")) +
+    ylab(paste0("PCo2 (", variance_pct[2], "%)")) +
+    ggtitle("MDS") +
+    scale_colour_manual(values = get_status_colors(status))
+}
+
+#' Delta-concordance scatter: one point per CpG.
+#'
+#' x = signature effect (median case - median control), y = the proband's
+#' deviation from the median control. A typical case lies on the diagonal
+#' (slope 1), a control on the horizontal (slope 0). The fitted slope is the
+#' fraction of the signature the proband carries; the intercept is a global
+#' offset (typically platform) that is independent of the signature.
+#'
+#' @param data_beta_full probes x samples, may contain NA, aligned to data_meta.
+#' @param data_meta metadata aligned to data_beta_full columns (needs Status).
+#' @return ggplot object, or NULL if there aren't enough cases/controls/probes.
+create_delta_concordance_plot <- function(data_beta_full, data_meta) {
+  mat <- as.matrix(data_beta_full)
+  status <- data_meta[colnames(mat), "Status"]
+  group <- simplify_status(status)
+
+  if (sum(group == "case") < 2 || sum(group == "control") < 2) return(NULL)
+
+  med_case <- apply(mat[, group == "case", drop = FALSE], 1, median, na.rm = TRUE)
+  med_ctrl <- apply(mat[, group == "control", drop = FALSE], 1, median, na.rm = TRUE)
+
+  proband_ids <- colnames(mat)[group == "proband"]
+  df <- do.call(rbind, lapply(proband_ids, function(id) {
+    data.frame(Proband = id, effect = med_case - med_ctrl, deviation = mat[, id] - med_ctrl)
+  }))
+  df <- df[is.finite(df$effect) & is.finite(df$deviation), , drop = FALSE]
+  if (nrow(df) < 3) return(NULL)
+
+  fit_label <- sapply(split(df, df$Proband), function(d) {
+    if (nrow(d) < 3) return(NA_character_)
+    fit <- coef(lm(deviation ~ effect, d))
+    sprintf("%s: slope %.2f, offset %+.3f, r %.2f",
+            d$Proband[1], fit[2], fit[1], cor(d$effect, d$deviation))
+  })
+  fit_label <- paste(na.omit(fit_label), collapse = "\n")
+
+  status_colors <- get_status_colors(status)
+  many <- length(proband_ids) > 1
+
+  p <- ggplot(df, aes(effect, deviation)) +
+    geom_hline(yintercept = 0, color = status_colors[["control"]]) +
+    geom_abline(slope = 1, intercept = 0, color = status_colors[[1]])
+  p <- if (many) {
+    # Proband hues stay clear of the control / case colours used for the guides.
+    proband_colors <- colorRampPalette(c(status_colors[["proband"]], "#7C1D6F", "#2D2D2D"))(length(proband_ids))
+    p + geom_point(aes(color = Proband), size = 2, alpha = 0.6) +
+      geom_smooth(aes(color = Proband), method = "lm", formula = y ~ x, se = FALSE) +
+      scale_colour_manual(values = setNames(proband_colors, proband_ids))
+  } else {
+    p + geom_point(size = 2, alpha = 0.6, color = "gray25") +
+      geom_smooth(method = "lm", formula = y ~ x, se = TRUE,
+                  color = status_colors[["proband"]], fill = status_colors[["proband"]], alpha = 0.15)
+  }
+  p +
+    theme_minimal() +
+    theme(
+      legend.position = if (many) "bottom" else "none",
+      panel.border = element_rect(color = "black", fill = NA, size = 1),
+      aspect.ratio = 1
+    ) +
+    xlab("Signature effect (median case - median control)") +
+    ylab("Proband - median control") +
+    labs(title = "Delta concordance (one point per CpG)", subtitle = fit_label)
+}
+
+#' Sample-sample correlation heatmap.
+#'
+#' Spearman (rank) correlation of control-centred betas (see
+#' center_on_controls()), pairwise-complete, clustered on 1 - rho. Proband(s)
+#' are marked the same way as in create_heatmap().
+#'
+#' Centred, because raw betas share each probe's baseline level: every pair of
+#' samples then correlates near 1 and the group structure is squeezed into a
+#' narrow band. On the deviations from the control profile the scale has a
+#' meaningful zero - no shared deviation - so the colours run over the fixed
+#' -1..1 range and are comparable between figures.
+#'
+#' Ranks rather than Pearson, so a few probes with a large deviation cannot
+#' carry the correlation on their own.
+#'
+#' @param data_beta_full probes x samples, may contain NA, aligned to data_meta.
+#' @param data_meta metadata aligned to data_beta_full columns (needs Status).
+#' @return Heatmap grob, or NULL if there are too few usable samples.
+create_sample_correlation_heatmap <- function(data_beta_full, data_meta) {
+  mat <- as.matrix(data_beta_full)
+  status <- data_meta[colnames(mat), "Status"]
+
+  cm <- suppressWarnings(cor(center_on_controls(mat, status),
+                             use = "pairwise.complete.obs", method = "spearman"))
+  keep <- rowSums(is.na(cm)) == 0
+  if (sum(keep) < 3) return(NULL)
+  cm <- cm[keep, keep]
+  status <- status[keep]
+
+  hc <- hclust(as.dist(1 - cm), method = "average")
+  proband_at <- which(status == "proband")
+
+
+  ta <- HeatmapAnnotation(
+    Status = status,
+    col = list(Status = get_status_colors(status)),
+    show_legend = FALSE
+  )
+  ra <- rowAnnotation(foo = anno_mark(at = proband_at, labels = colnames(cm)[proband_at]))
+
+  htm <- Heatmap(
+    cm,
+    top_annotation = ta,
+    right_annotation = ra,
+    cluster_rows = hc,
+    cluster_columns = hc,
+    show_row_dend = FALSE,
+    col = colorRamp2(c(-1, 0, 1), c("#2C5F9E", "white", "#B5361C")),
+    show_column_names = FALSE,
+    show_row_names = FALSE,
+    name = "Spearman rho",
+    column_title = "Sample-sample correlation (control-centred, Spearman)",
+    column_title_gp = gpar(fontsize = 13),
+    heatmap_legend_param = list(direction = "horizontal")
+  )
+  grid.grabExpr(draw(htm, heatmap_legend_side = "bottom"))
+}
+
+#' Ranked-neighbour strip.
+#'
+#' Every displayed reference sample ordered by its distance to the proband
+#' (nearest on the left): a colour strip of their Status on top, the actual
+#' distances below. Unlike the heatmap dendrogram this is centred on the
+#' proband, has no arbitrary leaf order, and shows magnitude - a gap between the
+#' last case and the first control is the feature to look for. Distance is the
+#' mean absolute beta difference over the probes both samples have, so missing
+#' probes don't shrink it.
+#'
+#' The proband itself is drawn at rank 0, distance 0, in the proband colour and
+#' labelled: it is the origin every other point is measured from, so the first
+#' neighbour's height reads directly as "how far is the nearest sample", and the
+#' strip starts with the sample the panel is about.
+#'
+#' @param data_beta_full probes x samples, may contain NA, aligned to data_meta.
+#' @param data_meta metadata aligned to data_beta_full columns (needs Status).
+#' @return ggplot object (one facet per proband), or NULL if too few samples.
+create_ranked_neighbour_plot <- function(data_beta_full, data_meta) {
+  mat <- as.matrix(data_beta_full)
+  status <- data_meta[colnames(mat), "Status"]
+  is_proband <- status == "proband"
+  if (!any(is_proband) || sum(!is_proband) < 3) return(NULL)
+
+  ref <- mat[, !is_proband, drop = FALSE]
+  ref_status <- status[!is_proband]
+  n_case <- sum(simplify_status(ref_status) == "case")
+
+  df <- do.call(rbind, lapply(colnames(mat)[is_proband], function(id) {
+    d <- colMeans(abs(ref - mat[, id]), na.rm = TRUE)
+    out <- data.frame(Proband = id, Status = ref_status, d = d)
+    out <- out[is.finite(out$d), , drop = FALSE]
+    out <- out[order(out$d), , drop = FALSE]
+    out$rank <- seq_len(nrow(out))
+    # Strip sits above the points, in this facet's own y range.
+    span <- diff(range(out$d))
+    if (span == 0) span <- max(out$d, 1e-6)
+    out$strip_y <- max(out$d) + 0.22 * span
+    out$strip_h <- 0.16 * span
+    # Of the n_case nearest neighbours, how many are cases (all of them for a typical case).
+    k <- min(n_case, nrow(out))
+    n_hit <- sum(simplify_status(out$Status[seq_len(k)]) == "case")
+    out$Facet <- if (k > 0) sprintf("%s: %d of the %d nearest are cases", id, n_hit, k) else id
+    # The proband itself, at rank 0. Added after the ranking and the strip
+    # geometry, so neither the neighbour ranks nor the hit count include it.
+    self <- out[1, , drop = FALSE]
+    self$Status <- "proband"
+    self$d <- 0
+    self$rank <- 0L
+    out$is_self <- FALSE
+    self$is_self <- TRUE
+    rbind(self, out)
+  }))
+  if (is.null(df) || nrow(df) < 3) return(NULL)
+
+  status_colors <- get_status_colors(status)
+
+  ggplot(df) +
+    geom_tile(aes(rank, strip_y, height = strip_h, fill = Status), width = 0.9) +
+    geom_point(data = df[!df$is_self, , drop = FALSE],
+               aes(rank, d, color = Status), size = 2.5) +
+    # The proband: a larger diamond at the origin, named, so it cannot be read
+    # as one more reference sample.
+    geom_point(data = df[df$is_self, , drop = FALSE],
+               aes(rank, d, color = Status), shape = 18, size = 5) +
+    geom_text(data = df[df$is_self, , drop = FALSE],
+              aes(rank, d, label = Proband, color = Status),
+              hjust = -0.15, vjust = -0.9, size = 3.5, show.legend = FALSE) +
+    facet_wrap(~ Facet, nrow = 1, scales = "free") +
+    scale_fill_manual(values = status_colors) +
+    scale_colour_manual(values = status_colors) +
+    theme_minimal() +
+    theme(
+      legend.position = "bottom",
+      panel.border = element_rect(color = "black", fill = NA, size = 1),
+      strip.text = element_text(size = 11, face = "bold")
+    ) +
+    xlab("Proband (rank 0), then reference samples ranked by distance to it (nearest on the left)") +
+    ylab("Mean |beta difference|") +
+    ggtitle("Ranked neighbours")
 }
 
 #' Create heatmap
@@ -316,6 +805,20 @@ create_heatmap <- function(data_beta, data_meta, age_table = NULL, chr_sex_table
   if("Sex" %in% names(data_meta)) {
     # Sex values: "Male" or "Female"
     ann_colors$Sex <- c("Male" = "#4169E1", "Female" = "#FF69B4")
+
+    # The source metadata codes Sex inconsistently - most samples use
+    # "Male"/"Female", but some carry numeric codes (e.g. 0/1). Map any
+    # unmapped non-NA levels to grey so the heatmap still renders instead of
+    # erroring with "cannot map colors to some of the levels". (NA is handled
+    # by ComplexHeatmap's default na_col.)
+    observed_sex <- unique(as.character(data_meta$Sex))
+    observed_sex <- observed_sex[!is.na(observed_sex)]
+    missing_sex <- setdiff(observed_sex, names(ann_colors$Sex))
+    if(length(missing_sex) > 0) {
+      default_sex <- rep("#BDBDBD", length(missing_sex))
+      names(default_sex) <- missing_sex
+      ann_colors$Sex <- c(ann_colors$Sex, default_sex)
+    }
   }
 
   if("AgeGroup" %in% names(data_meta)) {
@@ -355,10 +858,12 @@ create_heatmap <- function(data_beta, data_meta, age_table = NULL, chr_sex_table
     annotation_height = annotation_heights
   )
 
-  #Add sample names at the bottom of the heatmap
+  #Add sample names at the bottom of the heatmap, rotated 30 degrees so
+  # they don't overlap each other for multi-proband runs.
   ba = columnAnnotation(foo = anno_mark(at = which(data_meta$Status == "proband"),
                                         labels = data_meta[ which(data_meta$Status == "proband"),]$IDs,
-                                        side="bottom"))
+                                        side = "bottom",
+                                        labels_rot = 30))
 
   # Create heatmap
   htm <- Heatmap(
@@ -412,6 +917,21 @@ calculate_sample_distances <- function(test_beta, candidate_beta) {
 
   # Return mean distance across all test samples for each candidate
   colMeans(all_distances, na.rm = TRUE)
+}
+
+# Relative row heights of the combined per-signature figure: three rows of
+# paired square panels, the ranked-neighbour strip, then the probe heatmap.
+DIMENSION_PLOT_ROW_HEIGHTS <- c(1, 1, 1, 0.7, 2)
+DIMENSION_PLOT_UNITS <- sum(DIMENSION_PLOT_ROW_HEIGHTS)
+# The figure used to be 3 units tall (PCA row + 2x heatmap). Front-ends scale
+# their old device height by this so every row keeps its previous size.
+DIMENSION_PLOT_HEIGHT_SCALE <- DIMENSION_PLOT_UNITS / 3
+
+#' Keep a single QC plot at its old size on a page sized for the per-signature
+#' figure (one PDF device has one page size): the plot takes the top 3 units.
+fit_to_dimension_page <- function(p) {
+  p / patchwork::plot_spacer() +
+    plot_layout(heights = c(3, DIMENSION_PLOT_UNITS - 3))
 }
 
 #' Create dimension reduction plots
@@ -470,10 +990,8 @@ create_dimension_reduction_plots <- function(data_beta, data_meta, proband, sign
 
   signature_name_base <- str_split(signature_name, "_", simplify = TRUE)[,1]
 
-  real_cases_mask <- sapply(data_meta$Status, function(status) {
-    status_escaped <- gsub("([.\\-\\+\\*\\?\\[\\]\\(\\)\\{\\}\\^\\$\\|\\\\])", "\\\\\\1", status)
-    grepl(paste0("^", status_escaped, "($|[._])"), signature_name, ignore.case = TRUE)
-  }) & !data_meta$IDs %in% proband &
+  real_cases_mask <- status_matches_signature(data_meta$Status, signature_name) &
+       !data_meta$IDs %in% proband &
        data_meta$Status != "in_silico_case" &
        data_meta$Status != "control"
 
@@ -493,14 +1011,9 @@ create_dimension_reduction_plots <- function(data_beta, data_meta, proband, sign
 
     # cat("Calculating distances to", ncol(controls_beta), "control samples\n")
     controls_distances <- calculate_sample_distances(proband_beta, controls_beta)
-
-    # Select closest N controls
-    closest_controls_ids <- names(sort(controls_distances))[1:min(n_samples_per_group, length(controls_distances))]
-    controls_meta <- controls_available[controls_available$IDs %in% closest_controls_ids, ]
-    cat("Selected", nrow(controls_meta), "closest controls\n")
-  } else {
-    controls_meta <- data.frame()
   }
+  # The displayed controls are chosen further down, once the in-silico cases
+  # are known, so no individual is shown both as a control and as a case.
 
   # Calculate distances for real cases using all CpGs and only non-missing values
   if(nrow(real_cases_available) > 0) {
@@ -564,6 +1077,24 @@ create_dimension_reduction_plots <- function(data_beta, data_meta, proband, sign
     insilico_cases_selected <- data.frame()
   }
 
+  # Select the closest N controls from the remainder: an in-silico case is its
+  # source control plus the signature effect, so that control is not also shown
+  # as a control. Source controls are reused (closest first) only when the
+  # remainder can't fill N.
+  if(nrow(controls_available) > 0) {
+    sorted_control_ids <- names(sort(controls_distances))
+    used_as_source <- sorted_control_ids %in% gsub("_isc$", "", insilico_cases_selected$IDs)
+    closest_controls_ids <- head(c(sorted_control_ids[!used_as_source],
+                                   sorted_control_ids[used_as_source]),
+                                 n_samples_per_group)
+    controls_meta <- controls_available[controls_available$IDs %in% closest_controls_ids, ]
+    n_reused <- sum(closest_controls_ids %in% sorted_control_ids[used_as_source])
+    cat("Selected", nrow(controls_meta), "closest controls not used for in-silico cases",
+        if (n_reused > 0) paste0("(", n_reused, " reused: not enough remaining controls)") else "", "\n")
+  } else {
+    controls_meta <- data.frame()
+  }
+
   # Combine metadata with consistent columns
   # Ensure all data frames have the same columns in the same order
   all_meta_list <- list(proband_meta, controls_meta, real_cases_meta, insilico_cases_selected)
@@ -589,14 +1120,58 @@ create_dimension_reduction_plots <- function(data_beta, data_meta, proband, sign
     data_meta <- data.frame()
   }
 
-  data_beta <- data_beta[, colnames(data_beta) %in% rownames(data_meta)]
-  data_beta <- as.data.frame(t(data_beta))
-  data_beta <- data_beta[!duplicated(data_beta), ]
-  data_beta <- as.data.frame(t(data_beta))
-  data_meta <- data_meta[rownames(data_meta) %in% colnames(data_beta),]
-  data_beta <- data_beta[, match(rownames(data_meta), colnames(data_beta))]
-  
-  data_beta = na.omit(data_beta)
+  # Drop duplicate samples (identical beta vectors). Transposing through a
+  # matrix is safe for the dedup, but we re-anchor sample IDs from the
+  # matrix dimnames instead of trusting check.names to leave hyphens alone
+  # (signature labels like "KMT2D-KDM6A" otherwise get mangled to "KMT2D.KDM6A").
+  mat <- as.matrix(data_beta[, colnames(data_beta) %in% rownames(data_meta), drop = FALSE])
+  tmat <- t(mat)
+  tmat <- tmat[!duplicated(tmat), , drop = FALSE]
+  mat  <- t(tmat)
+
+  data_beta <- as.data.frame(mat, check.names = FALSE, stringsAsFactors = FALSE)
+
+  # If the proband has no methylation data at this signature's CpGs (common
+  # for newly added signatures whose probes aren't in the user's array set,
+  # or for ONT/PacBio samples missing coverage), na.omit below would drop
+  # every row. Bail out with a clear message instead of letting PCA fail
+  # with a cryptic rank-deficient error downstream.
+  proband_cols <- intersect(colnames(data_beta),
+                            data_meta$IDs[data_meta$IDs %in% proband])
+  if (length(proband_cols) > 0) {
+    proband_nonNA <- sum(rowSums(!is.na(data_beta[, proband_cols, drop = FALSE])) > 0)
+    if (proband_nonNA == 0) {
+      stop("Proband has no methylation values at any of the ",
+           nrow(data_beta), " ", signature_name,
+           " signature CpGs - skipping plot.")
+    }
+  }
+
+  # Keep the pre-na.omit matrix for the pairwise-complete views (MDS, delta
+  # concordance, correlation heatmap, ranked neighbours): they can use probes the
+  # proband is missing, which na.omit drops for the PCA / heatmap.
+  data_beta_full <- data_beta
+  data_beta <- na.omit(data_beta)
+
+  # Enforce strict alignment that PCAtools::pca() requires:
+  # colnames(data_beta) must equal rownames(data_meta) exactly, same order.
+  common <- intersect(colnames(data_beta), rownames(data_meta))
+  if (length(common) == 0) {
+    stop("No overlapping samples between beta matrix and metadata for signature: ",
+         signature_name)
+  }
+  data_beta <- data_beta[, common, drop = FALSE]
+  data_beta_full <- data_beta_full[, common, drop = FALSE]
+  data_meta <- data_meta[common, , drop = FALSE]
+
+  # Need >= 3 samples for a meaningful 2-component PCA. With fewer samples
+  # the SVD goes rank-deficient and the downstream heatmap merge fails with
+  # "differing number of rows".
+  if (ncol(data_beta) < 3) {
+    stop("Only ", ncol(data_beta), " sample(s) survived alignment for ",
+         signature_name, " - need >= 3 for PCA. Likely too many NA probes ",
+         "from the proband's input data.")
+  }
 
   # PCA
   p <- pca(data_beta, data_meta, rank = 2)
@@ -605,12 +1180,42 @@ create_dimension_reduction_plots <- function(data_beta, data_meta, proband, sign
   # Heatmap
   heatmap_plot <- create_heatmap(data_beta, data_meta, age_table, chr_sex_table)
 
-  # Combine plots
-  design <- "AA
-             BB"
+  # Similarity-to-median-profile scatter (may be NULL if too few cases/controls).
+  similarity_plot <- create_similarity_plot(data_beta, data_meta)
 
-  combined_plot <- pca_plot + heatmap_plot +
-    plot_layout(design = design)+
+  # Views that may be NULL when there are too few cases/controls get a
+  # placeholder so the layout keeps its shape.
+  too_few <- "Not enough cases / controls"
+  or_placeholder <- function(p, title) if (is.null(p)) placeholder_panel(title, too_few) else p
+
+  pca_projected_plot <- or_placeholder(create_pca_projected_plot(data_beta, data_meta,
+                                                                 orient_like = p$rotated[, 1:2]),
+                                       "PCA on cases + controls, proband projected")
+  pcoa_plot          <- or_placeholder(create_pcoa_plot(data_beta_full, data_meta), "MDS")
+  delta_plot         <- or_placeholder(create_delta_concordance_plot(data_beta_full, data_meta),
+                                       "Delta concordance")
+  similarity_plot    <- or_placeholder(similarity_plot, "Similarity to median profiles")
+  correlation_plot   <- or_placeholder(create_sample_correlation_heatmap(data_beta_full, data_meta),
+                                       "Sample-sample correlation")
+  neighbour_plot     <- or_placeholder(create_ranked_neighbour_plot(data_beta_full, data_meta),
+                                       "Ranked neighbours")
+
+  # Row 1: current PCA (A)        | PCA with proband projected (B)
+  # Row 2: MDS (C)                | delta concordance (D)
+  # Row 3: similarity scatter (E) | sample-sample correlation heatmap (F)
+  # Row 4: ranked-neighbour strip (G), full width
+  # Row 5: probe heatmap (H), full width, 2x the height of a scatter row
+  design <- "AB
+             CD
+             EF
+             GG
+             HH"
+  combined_plot <- pca_plot + pca_projected_plot +
+    pcoa_plot + delta_plot +
+    similarity_plot + patchwork::wrap_elements(full = correlation_plot) +
+    neighbour_plot +
+    patchwork::wrap_elements(full = heatmap_plot) +
+    plot_layout(design = design, heights = DIMENSION_PLOT_ROW_HEIGHTS) +
     plot_annotation(title = signature_name)
 
   return(combined_plot)

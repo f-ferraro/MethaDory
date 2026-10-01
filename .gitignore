@@ -1,8 +1,12 @@
-data/
+data/*
 
 */.DS_Store
 .DS_Store
 
-*/.Rhistory
-*/Rplots.pdf
+**/.Rhistory
+**/Rplots.pdf
 
+
+# pixi: ignore environments, keep project config
+.pixi/*
+!.pixi/config.toml

@@ -7,14 +7,19 @@ platforms = ["osx-64", "linux-64"]
 [environments]
 modkit = ["modkit"]
 
+[activation.env]
+# Force reticulate to use the pixi env's Python (matches R's architecture)
+# instead of auto-detecting Homebrew's Python.
+RETICULATE_PYTHON = "$CONDA_PREFIX/bin/python"
+
 [tasks]
+
+# Command-line analysis: HTML report(s) + the .xlsx result tables
+MethaDory_html = { cmd = "cd src/cli && Rscript generate_methadory_html_report.R" }
 
 # Launch Shiny GUI application
 MethaDory = { cmd = "cd src/shiny && Rscript app.R" }
 
-# Command-line analysis tools
-MethaDory_cli = { cmd = "cd src/cli && Rscript run_methadory.R" }
-MethaDory_html = { cmd = "cd src/cli && Rscript generate_methadory_html_report.R" }
 
 MethaDory_ont_extract_cmd = { cmd = "cd ONT-Input-preparation && bash MethaDory-extract-methylation.sh" }
 MethaDory_ont_extract = { cmd = "pixi run -e modkit MethaDory_ont_extract_cmd" }
@@ -25,6 +30,8 @@ MethaDory_ont_input   = { cmd = "cd ONT-Input-preparation &&  Rscript MethaDory_
 bioconductor-genomeinfodb = ">=1.42.0,<2"
 bioconductor-watermelon = ">=2.12.0,<3"
 bioconductor-methylumi = ">=2.52.0,<3"
+# methylumi imports lattice::parallel, removed in lattice 0.23
+r-lattice = "<0.23"
 bioconductor-methylimp2 = ">=1.2.0,<2"
 bioconductor-bumphunter = ">=1.48.0,<2"
 bioconductor-complexheatmap = ">=2.22.0,<3"
@@ -62,6 +69,17 @@ r-htmlwidgets = ">=1.6.4,<2"
 r-fs = ">=1.6.4,<2"
 r-biocmanager = ">=1.30.25,<2"
 r-circlize = ">=0.4.16,<0.5"
+
+# NNET inference path: PyTorch via reticulate.
+r-reticulate = ">=1.38.0,<2"
+pytorch = ">=2.0.0"
+numpy = ">=1.24"
+
+# bioconductor-lumi pulls in the methylation analysis stack used by the app;
+# nleqslv (its transitive dep) is dynamically linked against
+# libopenblas.0.dylib but the conda recipe doesn't pull it in.
+bioconductor-lumi = ">=2.58.0,<3"
+libopenblas = "*"
 
 [feature.modkit.dependencies]
 ont-modkit = "==0.5.0"

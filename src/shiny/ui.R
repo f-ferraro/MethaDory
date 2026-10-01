@@ -1,7 +1,7 @@
 ui <- dashboardPage(
   dashboardHeader(title = "MethaDory"),
   dashboardSidebar(
-    shinyDirButton("modelDir", "Select Model Folder", "Please select folder containing SVM models (typically data/svm-models/)"),
+    shinyDirButton("modelDir", "Select Model Folder", "Please select folder containing SVM/ and NNET/ subfolders"),
     verbatimTextOutput("modelDirPath"),
     hr(),
     fileInput("dataFile", "Upload Test Data (.tsv)\n\n[Max 500MB]",
@@ -33,7 +33,7 @@ ui <- dashboardPage(
                      dropdownParent = 'body'
                    )),
     hr(),
-    numericInput("minPSVMForPlots", "Minimum pSVM for dimension plots:",
+    numericInput("minPSVMForPlots", "Minimum mean(SVM,NNET) for dimension plots:",
                  value = 0.05, min = 0, max = 1, step = 0.01,
                  width = "200px"),
     numericInput("nSamplesPerGroup", "Number of additional samples to use for PCA and heatmap:",
@@ -124,9 +124,39 @@ ui <- dashboardPage(
                id = "tabset1", height = "1000px", width =  "1200px",
                tabPanel("Welcome", includeMarkdown("html_imports/help.md")),
 
+               # All sample QC in one panel: missing values, methylation age, cell
+               # proportions | chromosomal sex, PCA vs controls, beta-value distribution
+               tabPanel("QC",
+                        # Scrolls inside the fixed-height tabBox instead of spilling over it
+                        div(style = "max-height: 920px; overflow-y: auto; padding-right: 10px;",
+                          h4("Missing values before imputation"),
+                          uiOutput("qcMissing"),
+
+                          h4("Methylation age prediction", style = "margin-top: 25px;"),
+                          DTOutput("methAgeTable"),
+
+                          h4("Cell proportions and chromosomal sex", style = "margin-top: 25px;"),
+                          p("The table shows whether each sample's cell proportions are within the distributions observed in the training samples"),
+                          div(
+                            checkboxInput("showAllOutliers", "Show all results", value = FALSE),
+                            style = "margin-bottom: 10px;"
+                          ),
+                          DTOutput("cellPropOutlierTable"),
+                          br(),
+                          plotOutput("qcCellSexPlot", height = "700px"),
+
+                          h4("PCA against controls", style = "margin-top: 25px;"),
+                          p("Principal component analysis of each selected sample together with the control samples, computed on the beta values before imputation using the top 1% most variable autosomal CpGs measured in the sample. Controls are shown in grey and the sample in red. A sample lying far from the controls may be of poor quality (or come from a different tissue or platform) and its predictions should be interpreted with caution."),
+                          plotOutput("qcPcaPlot", height = "auto"),
+
+                          h4("Beta-value distribution against controls", style = "margin-top: 25px;"),
+                          p("Distribution of the beta values before imputation over all autosomal CpGs measured in the sample. Controls are shown in grey and the sample in red. A distribution that departs from the two peaks (near 0 and 1) of the controls may indicate poor quality, or data from a different platform that is not on the array scale."),
+                          plotOutput("qcDensityPlot", height = "auto")
+                        )),
+
                tabPanel("Prediction results plot",
                         div(
-                          numericInput("plotThreshold", "Minimum SVM Score Threshold:",
+                          numericInput("plotThreshold", "Minimum mean(SVM,NNET) Score Threshold:",
                                      value = 0.0, min = 0, max = 1, step = 0.05,
                                      width = "300px"),
                           div(style = 'overflow-x: auto; white-space: nowrap;',
@@ -135,23 +165,9 @@ ui <- dashboardPage(
                         )
                ),
 
-               tabPanel("SVM prediction table",
-                        numericInput("minPSVM", "Minimum pSVM_average:", value = 0.25, min = 0, max = 1, step = 0.01),
+               tabPanel("Prediction table",
+                        numericInput("minPSVM", "Minimum mean(SVM,NNET):", value = 0.25, min = 0, max = 1, step = 0.01),
                         DTOutput("predictionTable")),
-               tabPanel("Cell proportion deconvolution",
-                        div(
-                          h4("Cell Proportion Quality Control", style = "margin-bottom: 15px;"),
-                          p("The table shows whether each sample's cell proportions are within the distributions observed in the training samples"),
-                          div(
-                            checkboxInput("showAllOutliers", "Show all results", value = FALSE),
-                            style = "margin-bottom: 10px;"
-                          ),
-                          DTOutput("cellPropOutlierTable", height = "300px"),
-                          br(),
-                          plotOutput("cellpropPlot", height = "500px")
-                        )),
-               tabPanel("Chromosomal sex prediction", plotOutput("chrSexPlot", height = "800px")),
-               tabPanel("Methylation age prediction", DTOutput("methAgeTable", height = "800px")),
                tabPanel("References", includeMarkdown("html_imports/references.md"))
              )
     ),

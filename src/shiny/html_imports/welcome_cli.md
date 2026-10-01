@@ -12,6 +12,6 @@ The **Prediction Results Plot** tab shows a graphical representation of any DNAm
 
 Be also aware that similar signatures are associated with related genes and overlapping pathways.
 
-The **Dimension Reduction Plots** tab shows the sample of interest together with control samples from healthy individuals and samples from individuals affected by the disorder of the specific signature (or synthetic cases), to further corroborate the results. A genuine positive sample should cluster together with samples from the specific disorder and separately from controls.
+The **Visualizations for interpretation** tab shows the sample of interest together with control samples from healthy individuals and samples from individuals affected by the disorder of the specific signature (or synthetic cases), to further corroborate the results. A genuine positive sample should cluster together with samples from the specific disorder and separately from controls.
 
-For quality control purposes **Cell Proportion Deconvolution** and **Methylation Age prediction** can be inspected.
+All quality control information is gathered in the **QC** tab, which is worth inspecting before the predictions. From top to bottom it shows: the percentage of missing values before imputation (PASS below 5%, WARNING between 5% and 15%, FAIL above 15%); the methylation age prediction; the deconvoluted cell proportions next to the chromosomal sex prediction; a principal component analysis of the sample (red) together with control samples (grey) on the pre-imputation data; and the distribution of the beta values of the sample against that of the controls. A sample lying far from the controls, or with an unusual beta-value distribution, may be of poor quality.

@@ -8,7 +8,7 @@
 
 
 
-If you use MethaDory please cite our work and consider starring this repository to follow updates :) 
+If you use MethaDory please cite our work and consider starring this repository to follow updates. 
 
 `MethaDory` is currently in beta testing and is in active development to provide more signatures and optimizations for long-read sequencing, so stay tuned for the latest version! 
 
@@ -23,79 +23,125 @@ When pixi is available on your system, clone the `MethaDory` git page:
 git clone git@github.com:f-ferraro/MethaDory.git
 ```
 
-Then launch the app or one of the cli, installation will be performed automatically. 
+Then launch the app or one of the cli, installation will be performed automatically.
+
+The first time you run `MethaDory`, allow some time (~15') to install the necessary prerequisites. You might have to launch the command a couple of times to install all the dependencies. It might be required to enable the pixi postlinks to successfully complete the installation; in that case follow the terminal instructions from pixi.
 
 ## Running MethaDory
-To ensure these command are executed correctly from anywhere, specify the full path to the `MethaDory/pixi.toml` included in the main `MethaDory` repository. You can omit this if you're in the main `MethaDory` directory.
+To ensure these command are executed correctly from anywhere, specify the full path to the `MethaDory/pixi.toml` included in the main `MethaDory` repository. You can omit this if you're in the main `MethaDory` directory. Please specify full paths to all required inputs.
 
-You can launch the interactive app with:
+MethaDory can be run in two ways, both built on the same analysis pipeline and producing the same predictions:
 
-```bash
-pixi run --manifest-path MethaDory/pixi.toml MethaDory
-```
+1. **Self-contained HTML report** - the primary output: one shareable file per sample, with every plot and table embedded, plus the result tables as one `.xlsx` workbook for the whole run.
+2. **Interactive app** - explore the results, changing selections and thresholds interactively.
+
+For help with plot interpretation see `Manual.md` document in this repo. 
+
+### Data folder
 
 MethaDory relies on a number of files provided in the `data` folder. This folder should be in the same directory where the MethaDory code resides. In the folder you will find:
 
 - `affectedindividuals`, the folder containing filtered and anonymized beta data and meta data of example affected individuals (used for plotting).
 - `imputationsamples`, the folder containing samples used for missing value imputation.
+- `models`, the trained classifiers, organised per input platform (`arrays`, `ont`, `pb`). Each platform folder holds one model set containing an `SVM/` and an `NNET/` subfolder. The folder you point MethaDory at is the one containing `SVM/` and `NNET/` (e.g. `data/models/arrays/SVMa10b1_NNETa15b1_sig<...>`).
 - `support_files`, a folder containing
   - `manifest.qc_filtered.rds`, of methylation array manifest after filtering for QC as described in [Ferraro et al., 2025](https://www.medrxiv.org/content/10.1101/2025.03.28.25324859v1).
   - `merged_signatures_90DMRs.tsv`, text file containing information about the sites used for building the DNAm signatures and classifiers.
   - `background_training.cellprops.rds`, containing deconvoluted cell proportions from the samples used for the model training.
- 
-**Trained classifiers are currently undergoing external validation before public release and are available upon request. Please reach out to test the `data` folder.**
 
 
-Otherwise a number of CLI are also available. Please specificy full paths to all required inputs. 
+
+### Predictions
+
+Each signature is scored by two independent classifier families, a support vector machine (SVM) and a neural network (NNET), each trained over several checkpoints. Reported results include the per-family averages (`pSVM_average`, `pNNET_average`) with their standard deviations, and the metapredictor score `pCombined`, the mean of the two. `pCombined` is the score used for ranking, for the confidence bins in the summary tables, and for the `--min-p` threshold that decides which signatures get dimension reduction plots.
 
 
-### Table and PDF exports
+
+### 1. Self-contained HTML report (primary output)
+
+The recommended way to run MethaDory is the HTML report generator. It runs the full pipeline and writes a self-contained `.html` file for each sample with the prediction plot and table, the dimension reduction figures and the sample-level QC panels all embedded in it.
+
+Multi-sample input files are supported: the pipeline runs once over the whole file and the samples are then rendered one at a time. In that case the third argument is the **output directory**, and one report per sample is written to it as `<SampleName>.MethaDory-output.html`. With a single-sample input the third argument is the `.html` file to write, as before. Running in this way is faster than running multiple samples at the same time. We reccomend splitting the samples per technology, i.e. test at once only arrays, or ONT, or PacBio data.
+
 ```bash
-pixi run --manifest-path MethaDory/pixi.toml MethaDory_cli <model_folder> <sample_file> <output_prefix> [options]
-
-
-Arguments:
-   model_folder: Full path to folder containing SVM model .rds files
-   sample_file:  Full path to .tsv file containing sample data
-   output_prefix: Prefix for output files (will create .xlsx and .pdf files)
-
- Options:
-   --include-dim-plots      Include dimension reduction plots in PDF (default: TRUE)
-   --include-cell-plots     Include cell deconvolution plots in PDF (default: TRUE)
-   --include-chr-sex        Include chromosomal sex prediction plots in PDF (default: TRUE)
-   --min-psvm               Minimum pSVM threshold for dimension plots (default: 0.05)
-   --n-imputation-samples   Number of closest samples for imputation (default: 20)
-   --n-samples-plots        Number of additional samples for visualization (default: 20)
-   --export-imputed         Export imputed methylation data (default: FALSE)
-   --help                   Show this help message
-```
-
-
-### Self-contained HTML (supported for single sample only)
-```bash
-pixi run --manifest-path MethaDory/pixi.toml MethaDory_html <model_folder> <sample_file> <output.html> [options]
+pixi run --manifest-path MethaDory/pixi.toml MethaDory_html <model_folder> <sample_file> <output.html|output_dir> [options]
 
 
  Arguments:
-   model_folder: Full path to folder containing SVM model .rds files
+   model_folder: Full path to the model folder containing the SVM/ and NNET/ subfolders
    sample_file:  Full path to .tsv file containing sample data
-   output_path:  Full name to the HTML that should be saved
+   output_path:  Single sample: full name of the HTML file to write.
+                 Several samples: the output directory, which will receive one
+                 <SampleName>.MethaDory-output.html per sample.
 
  Options:
    --include-dim-plots      Include dimension reduction plots (default: TRUE)
    --include-cell-plots     Include cell deconvolution plots (default: TRUE)
    --include-chr-sex        Include chromosomal sex prediction plots (default: TRUE)
-   --min-psvm               Minimum pSVM threshold for plots (default: 0.05)
+   --min-p                  Keep a signature for the per-signature dimension plots when its combined
+                            score (pCombined, the mean of the SVM and NNET scores) is at or above
+                            this value, between 0 and 1 (default: 0.20). Tables and the prediction
+                            plot always show every signature.
    --n-imputation-samples   Number of closest samples for imputation (default: 20)
    --n-samples-plots        Number of additional samples for visualization (default: 20)
+   --export-xlsx            Also write the result tables as an .xlsx workbook (default: TRUE)
+   --export-imputed         Also write the imputed methylation data (user samples + controls +
+                            real cases) as <report>_imputed.tsv (default: FALSE)
    --help                   Show this help message
 ```
 
+Files written next to the report(s):
 
+| File | When | Content |
+|---|---|---|
+| `<report>.html`, or `<SampleName>.MethaDory-output.html` per sample | always | the self-contained report, one per sample |
+| `<report>.xlsx`, or `<input file name>.MethaDory-output.xlsx` | unless `--export-xlsx FALSE` | the result tables, **one workbook for the whole run** with all samples together: predictions (long and wide), per-signature summary, cell proportions, methylation age, chromosomal sex |
+| `<report>_imputed.tsv`, or `<input file name>.MethaDory-output_imputed.tsv` | with `--export-imputed TRUE` | `IlmnID` x samples: your samples after imputation, plus the background controls and the real cases they are compared with |
 
+The tables are written before the reports are rendered, so a report that fails does not cost the numbers.
 
-The first time you run `MethaDory`, allow some time (~15') to install the necessary prerequisites. You might have to to launch the command a couple of times to install all the dependencies.
-If the local web browser doesn't open automatically, double click on the link shown on the terminal or paste it in a web browser of choice. 
+`--min-p` only decides which signatures get a per-signature figure: a signature is kept when its combined score `pCombined` is at or above the value. The tables, the workbook and the prediction plot always list every signature. (The option was called `--min-psvm` in earlier versions; the old name is now refused with a message rather than silently ignored.)
+
+Example, for a single Nanopore proband:
+
+```bash
+pixi run --manifest-path MethaDory/pixi.toml MethaDory_html \
+  /path/to/data/models/ont/SVMa10b1_NNETa15b1_sig<...> \
+  /path/to/sample.tsv /path/to/report.html
+```
+
+Example, for a file holding several samples, drawing figures only for signatures scoring 0.25 or more and exporting the imputed data:
+
+```bash
+pixi run --manifest-path MethaDory/pixi.toml MethaDory_html \
+  /path/to/data/models/arrays/SVMa10b1_NNETa15b1_sig<...> \
+  /path/to/samples.tsv /path/to/reports/ \
+  --min-p 0.25 --export-imputed TRUE
+```
+
+This writes `reports/<SampleName>.MethaDory-output.html` for each sample, plus `reports/samples.MethaDory-output.xlsx` and `reports/samples.MethaDory-output_imputed.tsv` for the run.
+
+### 2. Interactive app
+
+The app is the exploratory front-end: it runs the same pipeline, but lets you re-select probands, signatures and thresholds and redraw the figures without recomputing. Launch it with:
+
+```bash
+pixi run --manifest-path MethaDory/pixi.toml MethaDory
+```
+
+#### App options
+
+Beyond selecting the model folder and uploading the input file, the sidebar exposes:
+
+- **Number of closest samples for imputation**: how many nearest background samples are used to impute missing probes (default 20).
+- **Select Proband(s) / Select Signature(s)**: restrict which samples and signatures are plotted.
+- **Minimum mean(SVM,NNET) for dimension plots**: score threshold above which a signature gets a PCA/heatmap panel (default 0.05).
+- **Number of additional samples to use for PCA and heatmap**: reference samples added per group to the dimension plots (default 20).
+- **Export Options**: *Download Results* writes the tables, *Download Plots* writes a self-contained HTML report reflecting the current selections.
+
+#### If the app doesn't open
+
+If the local web browser doesn't open automatically, double click on the link shown on the terminal or paste it in a web browser of choice.
 
 `MethaDory` relies on web browser being installed and set as default in your system. If you get the error:
 
@@ -107,10 +153,6 @@ You can manually set your browser in `MethaDory` by adding to `src/shiny/app.R` 
 ```
 options(browser="firefox")
 ```
-
-On some systems, it might be required to enable the pixi postlinks to successfully complete the installation. In that case follow the terminal instructions from pixi.
-
-
 
 
 ## Input Data Format
@@ -135,4 +177,7 @@ cg08128007	0.801	0.84	0.869
 
 `MethaDory` will perform missing value imputation to ensure all necessary probes are present, however high missing probe rate increases computation time and can reduce the performance of the classifiers.
 
-For Oxford Nanopore Data support see the `ONT-Input-Preparation` folder.
+
+`MethaDory` uses models trained on Noob-normalized arrays. Please use this normalization on your data before testing new samples for best performance. See for an example the `Input-preparation-Array` folder.
+For Oxford Nanopore data support see the `Input-preparation-ONT` folder.
+For PacBio data support see the `Input-preparation-PB` folder.
