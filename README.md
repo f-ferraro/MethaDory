@@ -100,8 +100,6 @@ Files written next to the report(s):
 
 The tables are written before the reports are rendered, so a report that fails does not cost the numbers.
 
-`--min-p` only decides which signatures get a per-signature figure: a signature is kept when its combined score `pCombined` is at or above the value. The tables, the workbook and the prediction plot always list every signature. (The option was called `--min-psvm` in earlier versions; the old name is now refused with a message rather than silently ignored.)
-
 Example, for a single Nanopore proband:
 
 ```bash

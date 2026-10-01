@@ -137,7 +137,7 @@ In the right panel, the components are computed from controls and cases only, an
 
 An ordination like PCA, but built from sample-to-sample distances (1 − Spearman rank correlation) computed on the probes each pair of samples shares, after subtracting the control median from every probe.
 
-### 4.6 Delta concordance (row 2, right)
+### 4.6 Delta concordance 
 
 One point per CpG.
 
@@ -154,15 +154,15 @@ One point per CpG.
 | Offset away from 0 | A global shift that is the same at every CpG, typically platform or batch. It is separate from the signature and does not count for or against it |
 | Low `r` | The points do not follow a line: whatever the slope, the evidence is weak |
 
-### 4.7 Similarity to median profiles (row 3, left)
+### 4.7 Similarity to median profiles
 
 Pearson correlation of each sample with the median control profile (x) and with the median case profile (y). Above the red diagonal means more similar to cases; below means more similar to controls.
 
-### 4.8 Sample–sample correlation heatmap (row 3, right)
+### 4.8 Sample–sample correlation heatmap 
 
 Spearman (rank) correlation between every pair of displayed samples, clustered. Before correlating, the median of the displayed controls is subtracted from every probe, so each sample is described by its **deviation from the control profile** rather than by its raw beta values. Raw values share each probe's baseline methylation level, which would make every pair of samples correlate close to 1 and hide the groups. The top bar gives each sample's group; the proband is labelled on the right.
 
-### 4.9 Ranked neighbours (row 4)
+### 4.9 Ranked neighbours 
 
 The proband, then all displayed reference samples ordered by their distance to it, nearest on the left. The proband itself sits at rank 0 and distance 0 and is the sample every other one is measured from, so the height of the first reference point reads directly as "how far is the nearest sample". The colour bar gives each sample's group; the points below give the actual distances. The panel title counts how many of the N nearest samples are cases, where N is the number of cases shown.
 
@@ -171,7 +171,7 @@ The proband, then all displayed reference samples ordered by their distance to i
 
 Unlike a dendrogram, this view is centred on the proband, has no arbitrary ordering, and shows how large the differences are.
 
-### 4.10 Probe heatmap (row 5)
+### 4.10 Probe heatmap 
 
 Rows are the signature's CpGs, columns are samples; both are clustered. Values are standardised per CpG: yellow is above that CpG's mean, blue is below. The annotation bars give group, platform, sex and age group; the proband is labelled underneath.
 

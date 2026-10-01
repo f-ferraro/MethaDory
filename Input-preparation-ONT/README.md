@@ -45,4 +45,4 @@ Usage: MethaDory_ONT_Input_Preparation.R <pseudoepic_directory> <output_file>
        output_file            Full path to the output file
 ```
 
-*remember that MethaDory accepts files up to 300MB*
+*remember that MethaDory interactive app accepts files up to 300MB*

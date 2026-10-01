@@ -72,4 +72,4 @@ Usage: MethaDory_PB_Input_Preparation.R \
 The output is a tab-separated table with `IlmnID` as the first column and one
 column per sample, with beta values in [0, 1].
 
-*Remember that MethaDory accepts files up to 300 MB.*
+*Remember that MethaDory interactive app accepts files up to 300 MB.*
