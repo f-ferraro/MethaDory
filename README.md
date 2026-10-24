@@ -27,6 +27,8 @@ Then launch the app or one of the cli, installation will be performed automatica
 
 The first time you run `MethaDory`, allow some time (~15') to install the necessary prerequisites. You might have to launch the command a couple of times to install all the dependencies. It might be required to enable the pixi postlinks to successfully complete the installation; in that case follow the terminal instructions from pixi.
 
+Docker file is also provided thanks to [hexylena](https://github.com/hexylena)
+
 ## Running MethaDory
 To ensure these command are executed correctly from anywhere, specify the full path to the `MethaDory/pixi.toml` included in the main `MethaDory` repository. You can omit this if you're in the main `MethaDory` directory. Please specify full paths to all required inputs.
 
