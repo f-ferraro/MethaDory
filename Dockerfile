@@ -20,7 +20,9 @@ COPY --from=build /app/.pixi/.condapackageignore /app/.pixi/.condapackageignore
 COPY --from=build --chmod=0755 /app/entrypoint.sh /app/entrypoint.sh
 COPY ./data /app/data
 COPY ./src /app/src
-COPY ./ONT-Input-preparation /app/ONT-Input-preparation
+COPY ./Input-preparation-Array /app/Input-preparation-Array
+COPY ./Input-preparation-ONT /app/Input-preparation-ONT
+COPY ./Input-preparation-PB /app/Input-preparation-PB
 
 RUN echo "#!/bin/bash" > /app/entrypoint.sh && \
     echo "pixi run \"\$@\"" >> /app/entrypoint.sh
