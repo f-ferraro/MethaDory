@@ -55,6 +55,12 @@ MethaDory relies on a number of files provided in the `data` folder. This folder
 
 Each signature is scored by two independent classifier families, a support vector machine (SVM) and a neural network (NNET), each trained over several checkpoints. Reported results include the per-family averages (`pSVM_average`, `pNNET_average`) with their standard deviations, and the metapredictor score `pCombined`, the mean of the two. `pCombined` is the score used for ranking, for the confidence bins in the summary tables, and for the `--min-p` threshold that decides which signatures get dimension reduction plots.
 
+### Running the Container
+
+```
+docker run -it -v ./:/data ghcr.io/f-ferraro/MethaDory:latest MethaDory_cli /app/data/models/<platform>/<model>/ /data/demo.input.txt /data/output
+```
+
 
 
 ### 1. Self-contained HTML report (primary output)
