@@ -4,7 +4,7 @@
   <img src="src/shiny/html_imports/methadory.png" width="200">
 </p>
 
-`MethaDory` is a shiny app for testing of DNAm signatures as described in ['***Training with synthetic data provides accurate and openly-available DNA methylation classifiers for developmental disorders and congenital anomalies via MethaDory***' (Ferraro et al., 2025)](https://www.medrxiv.org/content/10.1101/2025.03.28.25324859v1). 
+`MethaDory` is a shiny app for testing of DNAm signatures as described in ['***Synthetic epigenomes for open cross-platform episignature classifiers***' (Ferraro et al., 2026)](https://www.medrxiv.org/content/10.1101/2025.03.28.25324859v2). 
 
 
 
